@@ -6,6 +6,25 @@
 #include <QCache>
 #include <QFile>
 #include <QImageReader>
+#include <QDir>
+#include <cstdint>
+#include <bass.h>
+
+#ifndef BASS_TAG_FLAC_PICTURE
+#define BASS_TAG_FLAC_PICTURE 0x12000
+#endif
+
+struct TAG_FLAC_PICTURE {
+    std::uint32_t apic;
+    char *mime;
+    char *desc;
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t depth;
+    std::uint32_t colors;
+    std::uint32_t length;
+    void *data;
+};
 
 namespace ui {
 namespace icons {
@@ -150,7 +169,6 @@ namespace utils {
                     int x = (orig_size.width() - crop_size) / 2;
                     int y = (orig_size.height() - crop_size) / 2;
                     
-                    //crop&decode
                     reader.setClipRect(QRect(x, y, crop_size, crop_size));
                     reader.setScaledSize(QSize(target_size, target_size));
                 }
@@ -158,6 +176,25 @@ namespace utils {
                 if (!img.isNull()) {
                     *result = QPixmap::fromImage(img);
                 }
+            }
+        } else if (file_path.endsWith(".flac", Qt::CaseInsensitive)) {
+            QString native_path = QDir::toNativeSeparators(file_path);
+#if defined(Q_OS_WIN)
+            const void* file_ptr = native_path.utf16();
+#else
+            QByteArray path_utf8 = native_path.toUtf8();
+            const void* file_ptr = path_utf8.constData();
+#endif
+            unsigned long temp_stream = BASS_StreamCreateFile(FALSE, file_ptr, 0, 0, BASS_STREAM_DECODE | BASS_UNICODE);
+            if (temp_stream) {
+                const TAG_FLAC_PICTURE* pic = reinterpret_cast<const TAG_FLAC_PICTURE*>(BASS_ChannelGetTags(temp_stream, BASS_TAG_FLAC_PICTURE));
+                if (pic && pic->data && pic->length > 0) {
+                    QPixmap pix;
+                    if (pix.loadFromData(reinterpret_cast<const uchar*>(pic->data), pic->length)) {
+                        *result = crop_to_square(pix, target_size);
+                    }
+                }
+                BASS_StreamFree(temp_stream);
             }
         }
         
