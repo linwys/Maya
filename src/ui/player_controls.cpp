@@ -167,23 +167,9 @@ void PlayerControls::update_track_info(const player::Track& track) {
     m_title_label->setText(track.title);
     m_artist_label->setText(track.artist);
 
-    QString base_path = track.file_path;
-    int dot_idx = base_path.lastIndexOf('.');
-    if (dot_idx != -1) {
-        base_path.truncate(dot_idx);
-    }
-    QString art_png = base_path + ".png";
-    QString art_jpg = base_path + ".jpg";
-
-    QPixmap pix;
-    if (QFile::exists(art_png)) {
-        pix.load(art_png);
-    } else if (QFile::exists(art_jpg)) {
-        pix.load(art_jpg);
-    }
-
+    QPixmap pix = icons::utils::get_cached_cover(track.file_path, 64);
     if (!pix.isNull()) {
-        m_cover_label->setPixmap(icons::utils::crop_to_square(pix, 64));
+        m_cover_label->setPixmap(pix);
     } else {
         m_cover_label->setPixmap(QPixmap());
     }
