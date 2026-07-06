@@ -2,13 +2,13 @@
 this is very fast, minimalist audio player made on cxx23 standarts and qt6. uses bass audio library to play audio files and yt-dlp to download tracks from YouTube 
 ## Screenshots
 
-![Library View](screenshots/library-s.png)
+![Library View](library-s.png)
 *All your local music in one place*
 
-![Playlists View](screenshots/playlists-s.png)
+![Playlists View](playlists-s.png)
 *Simple cards for your playlists*
 
-![Downloads](screenshots/downloads-s.png)
+![Downloads](downloads-s.png)
 *Downloads queue is fast and download track by track*
 
 ## What's a Maya have?
