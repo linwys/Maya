@@ -37,7 +37,8 @@ void LibraryView::setup_ui() {
     auto* add_file_btn = new QPushButton("+ Add File", this);
     add_file_btn->setFixedSize(110, 36);
     connect(add_file_btn, &QPushButton::clicked, this, [this]() {
-        QString file_path = QFileDialog::getOpenFileName(this, "Add Local Track", "", "Audio Files (*.mp3 *.flac *.wav *.m4a *.ogg)");
+    QStringList file_paths = QFileDialog::getOpenFileNames(this, "Add Local Tracks", "", "Audio Files (*.mp3 *.flac *.wav *.m4a *.ogg)");
+    for (const QString& file_path : file_paths) {
         if (!file_path.isEmpty()) {
             player::Track track;
             track.id = QUuid::createUuid();
@@ -67,6 +68,7 @@ void LibraryView::setup_ui() {
             track.album = "None";
             track.is_local = true;
             m_db->add_track(track);
+            }
         }
     });
     top_layout->addWidget(add_file_btn);
