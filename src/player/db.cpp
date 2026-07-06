@@ -65,7 +65,7 @@ void Db::load() {
     QJsonArray tracks_arr = root["tracks"].toArray();
     for (const auto& val : tracks_arr) {
         m_tracks.push_back(Track::from_json(val.toObject()));
-    }
+    } 
 
     m_playlists.clear();
     QJsonObject playlists_obj = root["playlists_new"].toObject();
