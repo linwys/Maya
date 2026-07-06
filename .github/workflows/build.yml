@@ -1,0 +1,56 @@
+name: Build Maya
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.8.3'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2022_64'
+
+    - name: Set up MSVC Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: amd64
+
+    - name: Configure CMake
+      run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build Release
+      run: cmake --build build --config Release
+
+    - name: Deploy Dependencies and Pack Release #yap
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path dist
+        Copy-Item -Path build/maya.exe -Destination dist/
+        Get-ChildItem -Path build -Filter "bass*.dll" -Recurse | Copy-Item -Destination dist/ -Force
+        Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile dist/yt-dlp.exe
+        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile ffmpeg.zip
+        Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_extracted -Force
+        Get-ChildItem -Path ffmpeg_extracted -Filter "ffmpeg.exe" -Recurse | Copy-Item -Destination dist/ -Force
+        Get-ChildItem -Path ffmpeg_extracted -Filter "ffprobe.exe" -Recurse | Copy-Item -Destination dist/ -Force
+        Get-ChildItem -Path ffmpeg_extracted -Filter "ffplay.exe" -Recurse | Copy-Item -Destination dist/ -Force
+        Remove-Item -Path ffmpeg.zip -Force
+        Remove-Item -Path ffmpeg_extracted -Recurse -Force
+        windeployqt --dir dist --compiler-runtime dist/maya.exe
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: maya-windows-x64
+        path: dist/
