@@ -86,7 +86,28 @@ void Db::load() {
         }
     }
 
+    QHash<QUuid, bool> track_exists;
+    track_exists.reserve(static_cast<qsizetype>(m_tracks.size()));
+    for (const auto& track : m_tracks) {
+        track_exists.insert(track.id, true);
+    }
+
+    bool modified = false;
+    for (auto& [name, pl] : m_playlists) {
+        size_t original_size = pl.track_ids.size();
+        std::erase_if(pl.track_ids, [&track_exists](const QUuid& id) {
+            return !track_exists.contains(id);
+        });
+        if (pl.track_ids.size() != original_size) {
+            modified = true;
+        }
+    }
+
     update_favourites_playlist_state();
+
+    if (modified) {
+        save();
+    }
 }
 
 void Db::save() {
