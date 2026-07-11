@@ -10,9 +10,7 @@ namespace ui {
 void DragSelectionListWidget::mousePressEvent(QMouseEvent* event) {
     if (auto* item = itemAt(event->pos())) {
         setCurrentItem(item);
-        m_drag_checking = (item->checkState() == Qt::Unchecked);
-        item->setCheckState(m_drag_checking ? Qt::Checked : Qt::Unchecked);
-        m_last_drag_item = item;
+        item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
         event->accept();
     } else {
         QListWidget::mousePressEvent(event);
@@ -20,13 +18,7 @@ void DragSelectionListWidget::mousePressEvent(QMouseEvent* event) {
 }
 
 void DragSelectionListWidget::mouseMoveEvent(QMouseEvent* event) {
-    if (auto* item = itemAt(event->pos())) {
-        if (item != m_last_drag_item) {
-            item->setCheckState(m_drag_checking ? Qt::Checked : Qt::Unchecked);
-            m_last_drag_item = item;
-        }
-    }
-    event->accept();
+    QListWidget::mouseMoveEvent(event);
 }
 
 void DragSelectionListWidget::keyPressEvent(QKeyEvent* event) {
@@ -50,7 +42,7 @@ void DragSelectionListWidget::keyPressEvent(QKeyEvent* event) {
 PlaylistDialog::PlaylistDialog(player::Db* db, QWidget* parent) 
     : QDialog(parent), m_db(db) {
     setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
-    setFixedSize(480, 520);
+    setFixedSize(480, 560);
     setStyleSheet("background-color: #121212; border: 1px solid #1a1a1a; border-radius: 12px;");
 
     auto* main_layout = new QVBoxLayout(this);
@@ -80,6 +72,7 @@ PlaylistDialog::PlaylistDialog(player::Db* db, QWidget* parent)
     top_right->addWidget(m_name_input);
 
     auto* select_cover_btn = new QPushButton("Choose Image", this);
+    select_cover_btn->setFocusPolicy(Qt::NoFocus);
     select_cover_btn->setFixedHeight(32);
     select_cover_btn->setStyleSheet(R"(
         QPushButton {
@@ -103,6 +96,23 @@ PlaylistDialog::PlaylistDialog(player::Db* db, QWidget* parent)
     list_lbl->setStyleSheet("font-size: 13px; font-weight: bold; color: #8c8c8c; border: none; background: transparent;");
     main_layout->addWidget(list_lbl);
 
+    m_search_bar = new QLineEdit(this);
+    m_search_bar->setPlaceholderText("Search tracks... (Ctrl + F to hide)");
+    m_search_bar->setVisible(false);
+    m_search_bar->setStyleSheet(R"(
+        QLineEdit {
+            background-color: #1a1a1a; border: 1px solid #333333; border-radius: 6px; padding: 6px 10px; color: #ffffff; font-size: 13px;
+        }
+    )");
+    connect(m_search_bar, &QLineEdit::textChanged, this, [this](const QString& text) {
+        for (int i = 0; i < m_track_list->count(); ++i) {
+            auto* item = m_track_list->item(i);
+            bool match = item->text().contains(text, Qt::CaseInsensitive);
+            item->setHidden(!match);
+        }
+    });
+    main_layout->addWidget(m_search_bar);
+
     m_track_list = new DragSelectionListWidget(this);
     m_track_list->setStyleSheet(R"(
         QListWidget {
@@ -124,6 +134,7 @@ PlaylistDialog::PlaylistDialog(player::Db* db, QWidget* parent)
     btn_layout->setSpacing(12);
 
     auto* cancel_btn = new QPushButton("Cancel", this);
+    cancel_btn->setFocusPolicy(Qt::NoFocus);
     cancel_btn->setFixedHeight(36);
     cancel_btn->setStyleSheet(R"(
         QPushButton {
@@ -134,6 +145,7 @@ PlaylistDialog::PlaylistDialog(player::Db* db, QWidget* parent)
     connect(cancel_btn, &QPushButton::clicked, this, &QDialog::reject);
 
     auto* create_btn = new QPushButton("Save", this);
+    create_btn->setFocusPolicy(Qt::NoFocus);
     create_btn->setFixedHeight(36);
     create_btn->setStyleSheet(R"(
         QPushButton {
@@ -179,6 +191,20 @@ void PlaylistDialog::set_playlist_data(const QString& name, const QString& cover
         if (std::find(track_ids.begin(), track_ids.end(), id) != track_ids.end()) {
             item->setCheckState(Qt::Checked);
         }
+    }
+}
+
+void PlaylistDialog::keyPressEvent(QKeyEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_F) {
+        m_search_bar->setVisible(!m_search_bar->isVisible());
+        if (m_search_bar->isVisible()) {
+            m_search_bar->setFocus();
+        } else {
+            m_search_bar->clear();
+        }
+        event->accept();
+    } else {
+        QDialog::keyPressEvent(event);
     }
 }
 
