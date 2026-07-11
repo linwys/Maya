@@ -1,8 +1,11 @@
 #pragma once
 #include <QWidget>
 #include <QLabel>
-#include <QTableWidget>
+#include <QTableView>
+#include <QLineEdit>
 #include <QStyledItemDelegate>
+#include <vector>
+#include "track_model.hpp"
 #include "player/db.hpp"
 
 namespace ui {
@@ -39,9 +42,15 @@ public:
     void open_playlist(const QString& name);
     void set_theme_colors(const QColor& bg_color);
     QString current_playlist_name() const { return m_playlist_name; }
+    void toggle_search();
+    std::vector<player::Track> current_queue() const;
 
 signals:
     void play_requested(const std::vector<player::Track>& queue, size_t index);
+    void queue_updated(const std::vector<player::Track>& queue);
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     void setup_ui();
@@ -58,7 +67,9 @@ private:
     QLabel* m_cover_label{nullptr};
     QLabel* m_title_label{nullptr};
     QLabel* m_sub_label{nullptr};
-    QTableWidget* m_table{nullptr};
+    QTableView* m_table{nullptr};
+    TrackModel* m_model{nullptr};
+    QLineEdit* m_search_bar{nullptr};
     TrackDelegate* m_delegate{nullptr};
 };
 
