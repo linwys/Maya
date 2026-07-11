@@ -20,6 +20,7 @@ TitleBar::TitleBar(QWidget* parent) : QWidget(parent) {
 
     auto* min_btn = new QPushButton(this);
     min_btn->setFixedSize(14, 14);
+    min_btn->setFocusPolicy(Qt::NoFocus);
     min_btn->setStyleSheet("background-color: #ffbd2e; border: none; border-radius: 7px;");
     connect(min_btn, &QPushButton::clicked, parent, [this]() {
         window()->showMinimized();
@@ -27,6 +28,7 @@ TitleBar::TitleBar(QWidget* parent) : QWidget(parent) {
 
     auto* close_btn = new QPushButton(this);
     close_btn->setFixedSize(14, 14);
+    close_btn->setFocusPolicy(Qt::NoFocus);
     close_btn->setStyleSheet("background-color: #ff5f56; border: none; border-radius: 7px;");
     connect(close_btn, &QPushButton::clicked, qApp, &QCoreApplication::quit);
 
