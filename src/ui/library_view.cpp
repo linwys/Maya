@@ -3,8 +3,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMenu>
-#include <QDir>
-#include <bass.h>
+#include <QKeyEvent>
 #include "icons.hpp"
 #include "metadata_editor.hpp"
 
@@ -36,70 +35,49 @@ void LibraryView::setup_ui() {
 
     auto* add_file_btn = new QPushButton("+ Add File", this);
     add_file_btn->setFixedSize(110, 36);
+    add_file_btn->setFocusPolicy(Qt::NoFocus);
     connect(add_file_btn, &QPushButton::clicked, this, [this]() {
-    QStringList file_paths = QFileDialog::getOpenFileNames(this, "Add Local Tracks", "", "Audio Files (*.mp3 *.flac *.wav *.m4a *.ogg)");
-    for (const QString& file_path : file_paths) {
-        if (!file_path.isEmpty()) {
-            player::Track track;
-            track.id = QUuid::createUuid();
-            track.file_path = file_path;
-            
-            QString native_path = QDir::toNativeSeparators(file_path);
-
-#if defined(Q_OS_WIN)
-            const void* file_ptr = native_path.utf16();
-#else
-            QByteArray path_utf8 = native_path.toUtf8();
-            const void* file_ptr = path_utf8.constData();
-#endif
-
-            unsigned long temp_stream = BASS_StreamCreateFile(FALSE, file_ptr, 0, 0, BASS_STREAM_DECODE | BASS_UNICODE);
-            if (temp_stream) {
-                double secs = BASS_ChannelBytes2Seconds(temp_stream, BASS_ChannelGetLength(temp_stream, BASS_POS_BYTE));
-                track.duration = std::chrono::seconds(static_cast<int64_t>(secs));
-                BASS_StreamFree(temp_stream);
-            } else {
-                track.duration = std::chrono::seconds(0);
-            }
-            
-            QFileInfo file_info(file_path);
-            track.title = file_info.completeBaseName();
-            track.artist = "Local Artist";
-            track.album = "None";
-            track.is_local = true;
-            m_db->add_track(track);
+        QStringList file_paths = QFileDialog::getOpenFileNames(this, "Add Local Tracks", "", "Audio Files (*.mp3 *.flac *.wav *.m4a *.ogg)");
+        for (const QString& file_path : file_paths) {
+            if (!file_path.isEmpty()) {
+                player::Track track = player::Track::extract_meta(file_path);
+                m_db->add_track(track);
             }
         }
     });
     top_layout->addWidget(add_file_btn);
     main_layout->addLayout(top_layout);
 
-    m_table = new QTableWidget(this);
-    m_table->setColumnCount(5);
-    
-    auto* header_hash = new QTableWidgetItem("#");
-    auto* header_title = new QTableWidgetItem("TITLE");
-    auto* header_album = new QTableWidgetItem("ALBUM");
-    auto* header_liked = new QTableWidgetItem("");
-    
-    auto* header_time = new QTableWidgetItem();
-    header_time->setIcon(icons::from_svg(icons::clock, QColor("#8c8c8c")));
+    m_search_bar = new QLineEdit(this);
+    m_search_bar->setPlaceholderText("Search tracks... (Ctrl + F to hide)");
+    m_search_bar->setVisible(false);
+    m_search_bar->setStyleSheet(R"(
+        QLineEdit {
+            background-color: #121212; border: 1px solid #1a1a1a; border-radius: 6px; padding: 8px 12px; color: #ffffff; font-size: 13px;
+        }
+    )");
+    connect(m_search_bar, &QLineEdit::textChanged, this, [this](const QString& text) {
+        m_model->set_search_query(text);
+        emit queue_updated(current_queue());
+    });
+    main_layout->addWidget(m_search_bar);
 
-    m_table->setHorizontalHeaderItem(0, header_hash);
-    m_table->setHorizontalHeaderItem(1, header_title);
-    m_table->setHorizontalHeaderItem(2, header_album);
-    m_table->setHorizontalHeaderItem(3, header_liked);
-    m_table->setHorizontalHeaderItem(4, header_time);
+    m_table = new QTableView(this);
+    m_model = new TrackModel(this);
+    m_table->setModel(m_model);
+
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
+    
     m_table->setColumnWidth(0, 55);
     m_table->setColumnWidth(2, 200);
     m_table->setColumnWidth(3, 60);
     m_table->setColumnWidth(4, 80);
+
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -108,36 +86,37 @@ void LibraryView::setup_ui() {
     m_table->verticalHeader()->setVisible(false);
     m_table->verticalHeader()->setDefaultSectionSize(72);
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_table->setSortingEnabled(true);
+    m_table->sortByColumn(0, Qt::AscendingOrder);
 
     m_delegate = new TrackDelegate(this);
     m_table->setItemDelegateForColumn(1, m_delegate);
 
     main_layout->addWidget(m_table);
 
-    connect(m_table, &QTableWidget::cellClicked, this, [this](int row, int col) {
+    connect(m_table, &QTableView::clicked, this, [this](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        int row = index.row();
+        int col = index.column();
         if (col == 3) {
-            auto* item = m_table->item(row, 0);
-            if (item) {
-                auto id = QUuid::fromString(item->data(Qt::UserRole).toString());
-                m_db->toggle_favorite(id);
-            }
-        } else if (col != 3) {
-            const auto& tracks = m_db->tracks();
-            if (row >= 0 && row < static_cast<int>(tracks.size())) {
-                emit play_requested(tracks, static_cast<size_t>(row));
-            }
+            auto track_id_str = m_model->data(m_model->index(row, 0), Qt::UserRole).toString();
+            auto id = QUuid::fromString(track_id_str);
+            m_db->toggle_favorite(id);
+        } else {
+            emit play_requested(current_queue(), static_cast<size_t>(row));
         }
     });
 
-    connect(m_table, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        QTableWidgetItem* item = m_table->itemAt(pos);
-        if (!item) return;
+    connect(m_table->horizontalHeader(), &QHeaderView::sortIndicatorChanged, this, [this]() {
+        emit queue_updated(current_queue());
+    });
 
-        int row = item->row();
-        const auto& tracks = m_db->tracks();
-        if (row < 0 || row >= static_cast<int>(tracks.size())) return;
+    connect(m_table, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QModelIndex index = m_table->indexAt(pos);
+        if (!index.isValid()) return;
 
-        const auto& track = tracks[static_cast<size_t>(row)];
+        int row = index.row();
+        const auto& track = m_model->get_track(row);
 
         auto* menu = new QMenu(this);
         menu->setStyleSheet("background-color: #121212; color: #ffffff; border: 1px solid #1a1a1a;");
@@ -148,7 +127,7 @@ void LibraryView::setup_ui() {
 
         QAction* selected = menu->exec(m_table->viewport()->mapToGlobal(pos));
         if (selected == play_act) {
-            emit play_requested(tracks, static_cast<size_t>(row));
+            emit play_requested(current_queue(), static_cast<size_t>(row));
         } else if (selected == edit_act) {
             MetadataEditorDialog dialog(track, this);
             if (dialog.exec() == QDialog::Accepted) {
@@ -174,6 +153,10 @@ void LibraryView::setup_ui() {
                     dialog.album().isEmpty() ? "None" : dialog.album(), 
                     new_cover_path
                 );
+
+                if (!new_cover_path.isEmpty()) {
+                    icons::utils::clear_cached_cover(track.file_path);
+                }
             }
         } else if (selected == delete_act) {
             m_db->remove_track(track.id);
@@ -184,58 +167,41 @@ void LibraryView::setup_ui() {
 
 void LibraryView::refresh() {
     m_table->setUpdatesEnabled(false);
-
     const auto& tracks = m_db->tracks();
-    int count = static_cast<int>(tracks.size());
-    m_sub_label->setText(QString("%1 songs • stored on this device").arg(count));
-    
-    m_table->setRowCount(0);
-    m_table->setRowCount(count);
-
-    for (int i = 0; i < count; ++i) {
-        auto* num_item = new QTableWidgetItem(QString::asprintf("%02d", i + 1));
-        num_item->setData(Qt::UserRole, tracks[i].id.toString());
-        m_table->setItem(i, 0, num_item);
-
-        size_t idx = static_cast<size_t>(i);
-        auto* title_item = new QTableWidgetItem(tracks[idx].title);
-        title_item->setData(Qt::UserRole, tracks[idx].artist);
-        title_item->setData(Qt::UserRole + 1, tracks[idx].file_path);
-        m_table->setItem(i, 1, title_item);
-
-        auto* album_item = new QTableWidgetItem(tracks[idx].album);
-        m_table->setItem(i, 2, album_item);
-
-        auto* liked_item = new QTableWidgetItem();
-        QIcon heart_icon = tracks[idx].is_favorite ? 
-            icons::from_svg(icons::heart_filled, QColor("#ff4d4d")) : 
-            icons::from_svg(icons::heart, QColor("#8c8c8c"));
-        liked_item->setIcon(heart_icon);
-        liked_item->setTextAlignment(Qt::AlignCenter);
-        m_table->setItem(i, 3, liked_item);
-
-        int secs = static_cast<int>(tracks[idx].duration.count());
-        auto* dur_item = new QTableWidgetItem(QString::asprintf("%d:%02d", secs / 60, secs % 60));
-        m_table->setItem(i, 4, dur_item);
-    }
-
+    m_sub_label->setText(QString("%1 songs • stored on this device").arg(tracks.size()));
+    m_model->set_tracks(&tracks);
     m_table->setUpdatesEnabled(true);
+    emit queue_updated(current_queue());
 }
 
-void LibraryView::handle_favorite_changed(const QUuid& id, bool is_favorite) {
-    QString id_str = id.toString();
-    for (int row = 0; row < m_table->rowCount(); ++row) {
-        auto* item = m_table->item(row, 0);
-        if (item && item->data(Qt::UserRole).toString() == id_str) {
-            auto* liked_item = m_table->item(row, 3);
-            if (liked_item) {
-                QIcon heart_icon = is_favorite ? 
-                    icons::from_svg(icons::heart_filled, QColor("#ff4d4d")) : 
-                    icons::from_svg(icons::heart, QColor("#8c8c8c"));
-                liked_item->setIcon(heart_icon);
-            }
-            break;
-        }
+void LibraryView::handle_favorite_changed(const QUuid&, bool) {
+    refresh();
+}
+
+void LibraryView::toggle_search() {
+    m_search_bar->setVisible(!m_search_bar->isVisible());
+    if (m_search_bar->isVisible()) {
+        m_search_bar->setFocus();
+    } else {
+        m_search_bar->clear();
+    }
+}
+
+std::vector<player::Track> LibraryView::current_queue() const {
+    std::vector<player::Track> queue;
+    queue.reserve(m_model->rowCount());
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        queue.push_back(m_model->get_track(i));
+    }
+    return queue;
+}
+
+void LibraryView::keyPressEvent(QKeyEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_F) {
+        toggle_search();
+        event->accept();
+    } else {
+        QWidget::keyPressEvent(event);
     }
 }
 
