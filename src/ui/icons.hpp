@@ -128,6 +128,18 @@ inline QIcon from_svg(const char* svg_data, const QColor& color) {
 }
 
 namespace utils {
+    inline QCache<QString, QPixmap>& get_cover_cache() {
+        static QCache<QString, QPixmap> cache(150);
+        return cache;
+    }
+
+    inline void clear_cached_cover(const QString& file_path) {
+        get_cover_cache().remove(QString("%1_52").arg(file_path));
+        get_cover_cache().remove(QString("%1_64").arg(file_path));
+        get_cover_cache().remove(QString("%1_140").arg(file_path));
+        get_cover_cache().remove(QString("%1_188").arg(file_path));
+    }
+
     inline QPixmap crop_to_square(const QPixmap& src, int target_size) {
         if (src.isNull()) return src;
         int size = std::min(src.width(), src.height());
@@ -138,7 +150,7 @@ namespace utils {
     }
 
     inline QPixmap get_cached_cover(const QString& file_path, int target_size) {
-        static QCache<QString, QPixmap> cache(150);
+        auto& cache = get_cover_cache();
         QString key = QString("%1_%2").arg(file_path).arg(target_size);
         if (cache.contains(key)) {
             return *cache.object(key);
@@ -170,11 +182,13 @@ namespace utils {
                     int y = (orig_size.height() - crop_size) / 2;
                     
                     reader.setClipRect(QRect(x, y, crop_size, crop_size));
-                    reader.setScaledSize(QSize(target_size, target_size));
+                    if (crop_size > target_size * 2) {
+                        reader.setScaledSize(QSize(target_size * 2, target_size * 2));
+                    }
                 }
                 QImage img = reader.read();
                 if (!img.isNull()) {
-                    *result = QPixmap::fromImage(img);
+                    *result = QPixmap::fromImage(img).scaled(target_size, target_size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
                 }
             }
         } else if (file_path.endsWith(".flac", Qt::CaseInsensitive)) {
