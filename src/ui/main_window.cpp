@@ -4,6 +4,11 @@
 #include <QFileDialog>
 #include <QTimer>
 #include <QMessageBox>
+#include <QKeyEvent>
+
+#if defined(Q_OS_WIN)
+#include <windows.h>
+#endif
 
 namespace ui {
 void MessageDialog::show_error(QWidget* parent, const QString& title, const QString& text) {
@@ -53,7 +58,81 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         //https://discord.com/developers/applications
         m_discord_rpc.initialize("1523368223129735178");
     }
+
+#if defined(Q_OS_WIN)
+    RegisterHotKey(reinterpret_cast<HWND>(winId()), 1, MOD_ALT | MOD_SHIFT, VK_SPACE);
+    RegisterHotKey(reinterpret_cast<HWND>(winId()), 2, MOD_ALT | MOD_SHIFT, VK_RIGHT);
+    RegisterHotKey(reinterpret_cast<HWND>(winId()), 3, MOD_ALT | MOD_SHIFT, VK_LEFT);
+#endif
 }
+
+MainWindow::~MainWindow() {
+#if defined(Q_OS_WIN)
+    UnregisterHotKey(reinterpret_cast<HWND>(winId()), 1);
+    UnregisterHotKey(reinterpret_cast<HWND>(winId()), 2);
+    UnregisterHotKey(reinterpret_cast<HWND>(winId()), 3);
+#endif
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event) {
+    switch (event->key()) {
+        case Qt::Key_Space:
+            if (m_pipeline.state() == player::PlaybackState::Playing) {
+                m_pipeline.pause();
+            } else {
+                m_pipeline.resume();
+            }
+            event->accept();
+            break;
+        case Qt::Key_MediaPlay:
+        case Qt::Key_MediaTogglePlayPause:
+            if (m_pipeline.state() == player::PlaybackState::Playing) {
+                m_pipeline.pause();
+            } else {
+                m_pipeline.resume();
+            }
+            event->accept();
+            break;
+        case Qt::Key_MediaPause:
+            m_pipeline.pause();
+            event->accept();
+            break;
+        case Qt::Key_MediaNext:
+            m_pipeline.next();
+            event->accept();
+            break;
+        case Qt::Key_MediaPrevious:
+            m_pipeline.prev();
+            event->accept();
+            break;
+        default:
+            QMainWindow::keyPressEvent(event);
+    }
+}
+
+#if defined(Q_OS_WIN)
+bool MainWindow::nativeEvent(const QByteArray&, void* message, qintptr*) {
+    MSG* msg = static_cast<MSG*>(message);
+    if (msg->message == WM_HOTKEY) {
+        int id = static_cast<int>(msg->wParam);
+        if (id == 1) {
+            if (m_pipeline.state() == player::PlaybackState::Playing) {
+                m_pipeline.pause();
+            } else {
+                m_pipeline.resume();
+            }
+            return true;
+        } else if (id == 2) {
+            m_pipeline.next();
+            return true;
+        } else if (id == 3) {
+            m_pipeline.prev();
+            return true;
+        }
+    }
+    return false;
+}
+#endif
 
 void MainWindow::setup_ui() {
     setMinimumSize(1200, 800);
@@ -82,7 +161,6 @@ void MainWindow::setup_ui() {
     m_downloads_view = new DownloadsView(&m_dl, m_stacked_widget);
     m_settings_view = new SettingsView(m_stacked_widget);
     m_playlist_view = new PlaylistView(&m_db, m_stacked_widget);
-    
     m_settings_view->initialize_format_selection(m_db.save_format(), [this](const QString& format) {
         m_db.set_save_format(format);
     });
@@ -130,10 +208,24 @@ void MainWindow::connect_signals() {
 
     connect(m_library_view, &LibraryView::play_requested, this, [this](const std::vector<player::Track>& queue, size_t index) {
         m_pipeline.play_queue(queue, index);
+        m_active_play_source = "library";
+    });
+
+    connect(m_library_view, &LibraryView::queue_updated, this, [this](const std::vector<player::Track>& queue) {
+        if (m_active_play_source == "library") {
+            m_pipeline.update_queue(queue);
+        }
     });
 
     connect(m_playlist_view, &PlaylistView::play_requested, this, [this](const std::vector<player::Track>& queue, size_t index) {
         m_pipeline.play_queue(queue, index);
+        m_active_play_source = "playlist";
+    });
+
+    connect(m_playlist_view, &PlaylistView::queue_updated, this, [this](const std::vector<player::Track>& queue) {
+        if (m_active_play_source == "playlist") {
+            m_pipeline.update_queue(queue);
+        }
     });
 
     connect(&m_pipeline, &player::AudioPipeline::track_changed, this, [this](const player::Track& track) {
@@ -297,6 +389,27 @@ void MainWindow::connect_signals() {
         }
         m_sidebar->navigation_changed(3);
     });
+
+    auto* space_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);// i
+    space_shortcut->setContext(Qt::WindowShortcut);
+    connect(space_shortcut, &QShortcut::activated, this, [this]() {
+        if (m_pipeline.state() == player::PlaybackState::Playing) {
+            m_pipeline.pause();
+        } else if (m_pipeline.state() == player::PlaybackState::Paused) {
+            m_pipeline.resume();
+        }
+    });
+
+    auto* ctrl_f_shortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), this);
+    ctrl_f_shortcut->setContext(Qt::WindowShortcut);
+    connect(ctrl_f_shortcut, &QShortcut::activated, this, [this]() {
+        int idx = m_stacked_widget->currentIndex();
+        if (idx == 0 && m_library_view) {
+            m_library_view->toggle_search();
+        } else if (idx == 5 && m_playlist_view) {
+            m_playlist_view->toggle_search();
+        }
+    });
 }
 
 void MainWindow::switch_page(int index) {
@@ -351,11 +464,15 @@ void MainWindow::apply_theme(const QString& theme) {
             QWidget#sidebar { background-color: #f1ede4; border-right: 1px solid #e0d7c5; }
             QWidget#player_controls { background-color: #f1ede4; border-top: 1px solid #e0d7c5; }
             QWidget#playlist_header { background-color: rgba(241, 237, 228, 120); border-bottom: 1px solid #e0d7c5; }
-            QTableWidget { background-color: #faf8f5; gridline-color: transparent; border: none; color: #1a1a1a; }
-            QTableWidget::item { border-bottom: 1px solid #e0d7c5; padding: 12px; }
-            QTableWidget::item:selected { background-color: #e8e3d5; }
-            QHeaderView::section { background-color: #faf8f5; color: #706a5e; border: none; font-weight: bold; font-size: 11px; }
+            QTableView { background-color: #faf8f5; gridline-color: transparent; border: none; color: #1a1a1a; }
+            QTableView::item { border-bottom: 1px solid #e0d7c5; padding: 12px; }
+            QTableView::item:selected { background-color: #e8e3d5; }
+            QHeaderView::section { background-color: #faf8f5; color: #706a5e; border: none; font-weight: bold; font-size: 11px; padding: 0px 8px; height: 32px; }
+            QHeaderView::section:hover { color: #1a1a1a; }
+            QHeaderView::down-arrow, QHeaderView::up-arrow { width: 0px; height: 0px; border: none; background: transparent; }
             QFrame#settings_card { background-color: #fcfbfa; border: 1px solid #e0d7c5; border-radius: 12px; }
+            QFrame#playlist_card { background-color: #fcfbfa; border: 1px solid #e0d7c5; border-radius: 12px; }
+            QFrame#playlist_card:hover { background-color: #e8e3d5; }
             QPushButton { background-color: #fcfbfa; border: 1px solid #e0d7c5; border-radius: 6px; padding: 0px 12px; color: #1a1a1a; font-weight: bold; }
             QPushButton:hover { background-color: #e8e3d5; }
             QPushButton:disabled { background-color: #eae5dc; border-color: #dcd5c8; color: #b0aaa0; }
@@ -385,11 +502,15 @@ void MainWindow::apply_theme(const QString& theme) {
             QWidget#sidebar { background-color: #eadeca; border-right: 1px solid #d8c8b0; }
             QWidget#player_controls { background-color: #eadeca; border-top: 1px solid #d8c8b0; }
             QWidget#playlist_header { background-color: rgba(234, 222, 202, 120); border-bottom: 1px solid #d8c8b0; }
-            QTableWidget { background-color: #f4ecd8; gridline-color: transparent; border: none; color: #433422; }
-            QTableWidget::item { border-bottom: 1px solid #d8c8b0; padding: 12px; }
-            QTableWidget::item:selected { background-color: #dbcca9; }
-            QHeaderView::section { background-color: #f4ecd8; color: #7e6850; border: none; font-weight: bold; font-size: 11px; }
+            QTableView { background-color: #f4ecd8; gridline-color: transparent; border: none; color: #433422; }
+            QTableView::item { border-bottom: 1px solid #d8c8b0; padding: 12px; }
+            QTableView::item:selected { background-color: #dbcca9; }
+            QHeaderView::section { background-color: #f4ecd8; color: #7e6850; border: none; font-weight: bold; font-size: 11px; padding: 0px 8px; height: 32px; }
+            QHeaderView::section:hover { color: #433422; }
+            QHeaderView::down-arrow, QHeaderView::up-arrow { width: 0px; height: 0px; border: none; background: transparent; }
             QFrame#settings_card { background-color: #FAF5E8; border: 1px solid #d8c8b0; border-radius: 12px; }
+            QFrame#playlist_card { background-color: #FAF5E8; border: 1px solid #d8c8b0; border-radius: 12px; }
+            QFrame#playlist_card:hover { background-color: #dbcca9; }
             QPushButton { background-color: #FAF5E8; border: 1px solid #d8c8b0; border-radius: 6px; padding: 0px 12px; color: #433422; font-weight: bold; }
             QPushButton:hover { background-color: #dbcca9; }
             QPushButton:disabled { background-color: #e0d5c0; border-color: #ccbc9a; color: #a69580; }
@@ -419,11 +540,15 @@ void MainWindow::apply_theme(const QString& theme) {
             QWidget#sidebar { background-color: #080808; border-right: 1px solid #141414; }
             QWidget#player_controls { background-color: #080808; border-top: 1px solid #141414; }
             QWidget#playlist_header { background-color: rgba(12, 12, 12, 120); border-bottom: 1px solid #141414; }
-            QTableWidget { background-color: #0c0c0c; gridline-color: transparent; border: none; color: #ffffff; }
-            QTableWidget::item { border-bottom: 1px solid #141414; padding: 12px; }
-            QTableWidget::item:selected { background-color: #222222; }
-            QHeaderView::section { background-color: #0c0c0c; color: #8c8c8c; border: none; font-weight: bold; font-size: 11px; }
+            QTableView { background-color: #0c0c0c; gridline-color: transparent; border: none; color: #ffffff; }
+            QTableView::item { border-bottom: 1px solid #141414; padding: 12px; }
+            QTableView::item:selected { background-color: #222222; }
+            QHeaderView::section { background-color: #0c0c0c; color: #8c8c8c; border: none; font-weight: bold; font-size: 11px; padding: 0px 8px; height: 32px; }
+            QHeaderView::section:hover { color: #ffffff; }
+            QHeaderView::down-arrow, QHeaderView::up-arrow { width: 0px; height: 0px; border: none; background: transparent; }
             QFrame#settings_card { background-color: #121212; border: 1px solid #1a1a1a; border-radius: 12px; }
+            QFrame#playlist_card { background-color: #121212; border: 1px solid #1a1a1a; border-radius: 12px; }
+            QFrame#playlist_card:hover { background-color: #1a1a1a; border-color: #262626; }
             QPushButton { background-color: #1a1a1a; border: 2px solid #262626; border-radius: 6px; padding: 0px 12px; color: #ffffff; font-weight: bold; }
             QPushButton:hover { background-color: #262626; }
             QPushButton:disabled { background-color: #121212; border-color: #1a1a1a; color: #444444; }
