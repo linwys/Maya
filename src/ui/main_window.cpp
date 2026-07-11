@@ -5,6 +5,11 @@
 #include <QTimer>
 #include <QMessageBox>
 #include <QKeyEvent>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #if defined(Q_OS_WIN)
 #include <windows.h>
@@ -64,6 +69,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     RegisterHotKey(reinterpret_cast<HWND>(winId()), 2, MOD_ALT | MOD_SHIFT, VK_RIGHT);
     RegisterHotKey(reinterpret_cast<HWND>(winId()), 3, MOD_ALT | MOD_SHIFT, VK_LEFT);
 #endif
+
+    QTimer::singleShot(2000, this, [this]() {
+        check_updates();
+    });
 }
 
 MainWindow::~MainWindow() {
@@ -390,7 +399,7 @@ void MainWindow::connect_signals() {
         m_sidebar->navigation_changed(3);
     });
 
-    auto* space_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);// i
+    auto* space_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
     space_shortcut->setContext(Qt::WindowShortcut);
     connect(space_shortcut, &QShortcut::activated, this, [this]() {
         if (m_pipeline.state() == player::PlaybackState::Playing) {
@@ -569,6 +578,40 @@ void MainWindow::apply_theme(const QString& theme) {
     }
 
     m_playlist_view->set_theme_colors(bg_color);
+}
+
+void MainWindow::check_updates() {
+    auto* nam = new QNetworkAccessManager(this);
+    QNetworkRequest req(QUrl("https://api.github.com/repos/linwys/Maya/releases/latest"));
+    req.setHeader(QNetworkRequest::UserAgentHeader, "Maya-Player");
+    
+    connect(nam, &QNetworkAccessManager::finished, this, [this, nam](QNetworkReply* reply) {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (doc.isObject()) {
+                QJsonObject obj = doc.object();
+                QString latest_tag = obj["tag_name"].toString().trimmed();
+                
+                auto sanitize = [](QString tag) {
+                    if (tag.startsWith('v', Qt::CaseInsensitive)) {
+                        tag.remove(0, 1);
+                    }
+                    return tag.trimmed().toLower();
+                };
+                
+                if (sanitize(latest_tag) != sanitize(TitleBar::VERSION)) {
+                    MessageDialog::show_error(this, "Update Available", 
+                        QString("A new version of Maya is available!\n\nCurrent: %1\nLatest: %2\n\nDownload the new release on GitHub.")
+                        .arg(TitleBar::VERSION)
+                        .arg(latest_tag)
+                    );
+                }
+            }
+        }
+        reply->deleteLater();
+        nam->deleteLater();
+    });
+    nam->get(req);
 }
 
 }
