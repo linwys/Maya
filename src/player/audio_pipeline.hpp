@@ -37,6 +37,7 @@ public:
     void next();
     void prev();
     void set_shuffle(bool enabled);
+    void update_queue(const std::vector<Track>& queue);
     void set_repeat(RepeatMode mode);
 
     PlaybackState state() const { return m_state; }
