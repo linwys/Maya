@@ -4,6 +4,7 @@
 #include <QStackedWidget>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
+#include <QShortcut>
 #include "title_bar.hpp"
 #include "sidebar.hpp"
 #include "player_controls.hpp"
@@ -31,9 +32,15 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = nullptr);
-    ~MainWindow() override = default;
+    ~MainWindow() override;
 
     Q_INVOKABLE void open_playlist_detail(const QString& name);
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
+#if defined(Q_OS_WIN)
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
+#endif
 
 private:
     void setup_ui();
@@ -57,6 +64,8 @@ private:
     DownloadsView* m_downloads_view{nullptr};
     SettingsView* m_settings_view{nullptr};
     PlaylistView* m_playlist_view{nullptr};
+
+    QString m_active_play_source;
 };
 
 }
