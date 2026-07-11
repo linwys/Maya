@@ -12,8 +12,8 @@ TitleBar::TitleBar(QWidget* parent) : QWidget(parent) {
     layout->setContentsMargins(16, 0, 16, 0);
     layout->setSpacing(12);
 
-    auto* title_lbl = new QLabel("", this);
-    title_lbl->setStyleSheet("font-size: 28px; font-weight: bold; color: #ffffff; letter-spacing: 1px;");
+    auto* title_lbl = new QLabel(QString("maya-%1").arg(VERSION), this);
+    title_lbl->setStyleSheet("font-size: 13px; font-family: 'Segoe UI', sans-serif; font-weight: 600; color: #3c3c3c; letter-spacing: 1px;");
     layout->addWidget(title_lbl);
 
     layout->addStretch();
