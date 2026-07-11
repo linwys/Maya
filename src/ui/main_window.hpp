@@ -47,6 +47,7 @@ private:
     void connect_signals();
     void switch_page(int index);
     void apply_theme(const QString& theme);
+    void check_updates();
 
     player::AudioPipeline m_pipeline;
     player::Db m_db;
