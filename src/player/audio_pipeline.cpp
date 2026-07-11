@@ -200,6 +200,16 @@ void AudioPipeline::set_shuffle(bool enabled) {
     m_shuffle = enabled;
 }
 
+void AudioPipeline::update_queue(const std::vector<Track>& queue) {
+    m_queue = queue;
+    auto it = std::find_if(m_queue.begin(), m_queue.end(), [this](const Track& t) {
+        return t.id == m_current_track.id;
+    });
+    if (it != m_queue.end()) {
+        m_current_index = std::distance(m_queue.begin(), it);
+    }
+}
+
 void AudioPipeline::set_repeat(RepeatMode mode) {
     m_repeat = mode;
 }
