@@ -10,7 +10,7 @@ namespace ui {
 class TitleBar : public QWidget {
     Q_OBJECT
 public:
-    static inline const QString VERSION = "1.1.0-beta";
+    static inline const QString VERSION = "1.2.12-beta";
 
     explicit TitleBar(QWidget* parent = nullptr);
     ~TitleBar() override = default;
