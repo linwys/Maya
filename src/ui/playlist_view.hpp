@@ -4,6 +4,8 @@
 #include <QTableView>
 #include <QLineEdit>
 #include <QStyledItemDelegate>
+#include <QSet>
+#include <QTimer>
 #include <vector>
 #include "track_model.hpp"
 #include "player/db.hpp"
@@ -14,8 +16,15 @@ class TrackDelegate : public QStyledItemDelegate {
     Q_OBJECT
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
+    TrackDelegate(QWidget* parent = nullptr);
+    ~TrackDelegate() override;
+
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
+
+private:
+    static QSet<QAbstractItemView*> s_views;
+    static QTimer* s_timer;
 };
 
 class PlaylistHeader : public QWidget {
