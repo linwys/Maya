@@ -55,8 +55,8 @@ void Db::load() {
     m_crossfade = root["crossfade"].toBool(true);
     m_gapless_playback = root["gapless_playback"].toBool(true);
     m_normalize_volume = root["normalize_volume"].toBool(false);
-    m_auto_download_favorites = root["auto_download_favorites"].toBool(true);
-    m_wifi_only = root["wifi_only"].toBool(false);
+    //m_auto_download_favorites = root["auto_download_favorites"].toBool(true);
+    //m_wifi_only = root["wifi_only"].toBool(false);
     m_equalizer_enabled = root["equalizer_enabled"].toBool(true);
     m_discord_rpc_enabled = root["discord_rpc_enabled"].toBool(false);
     m_volume = static_cast<float>(root["volume"].toDouble(0.8));
@@ -121,8 +121,8 @@ void Db::save() {
     root["crossfade"] = m_crossfade;
     root["gapless_playback"] = m_gapless_playback;
     root["normalize_volume"] = m_normalize_volume;
-    root["auto_download_favorites"] = m_auto_download_favorites;
-    root["wifi_only"] = m_wifi_only;
+    //root["auto_download_favorites"] = m_auto_download_favorites;
+    //root["wifi_only"] = m_wifi_only;
     root["equalizer_enabled"] = m_equalizer_enabled;
     root["discord_rpc_enabled"] = m_discord_rpc_enabled;
     root["volume"] = static_cast<double>(m_volume);
