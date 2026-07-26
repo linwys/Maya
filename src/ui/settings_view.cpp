@@ -145,14 +145,14 @@ void SettingsView::setup_ui() {
 
     connect(m_normalize_sw, &ToggleSwitch::toggled, this, &SettingsView::normalize_toggled);
 
-    auto* row4 = create_toggle_row("Auto-download favorites", "Save liked online tracks for offline play", m_auto_download_sw);
-    auto* row5 = create_toggle_row("Wi-Fi only", "Pause transfers on metered connections", m_wifi_only_sw);
+    //auto* row4 = create_toggle_row("Auto-download favorites", "Save liked online tracks for offline play", m_auto_download_sw);
+    //auto* row5 = create_toggle_row("Wi-Fi only", "Pause transfers on metered connections", m_wifi_only_sw);
     
     m_format_control = new SegmentedControl({"MP3", "FLAC", "OPUS"}, this);
     m_format_control->setEnabled(true);
     auto* row_format = create_control_row("Save format", m_format_control);
 
-    m_main_layout->addWidget(create_card("Downloads", {row4, row5, row_format}));
+    m_main_layout->addWidget(create_card("Downloads", {/*row4, row5,*/ row_format}));
 
     m_theme_control = new SegmentedControl({"Paper", "Sepia", "Auto"}, this);
     m_theme_control->setEnabled(false);
@@ -251,8 +251,8 @@ void SettingsView::initialize_settings(
     bool crossfade,
     bool gapless,
     bool normalize,
-    bool auto_dl,
-    bool wifi,
+    //bool auto_dl,
+    //bool wifi,
     bool eq,
     bool discord_rpc,
     const QString& format,
@@ -262,8 +262,8 @@ void SettingsView::initialize_settings(
     m_crossfade_sw->set_checked(crossfade);
     m_gapless_sw->set_checked(gapless);
     m_normalize_sw->set_checked(normalize);
-    m_auto_download_sw->set_checked(auto_dl);
-    m_wifi_only_sw->set_checked(wifi);
+    //m_auto_download_sw->set_checked(auto_dl);
+    //m_wifi_only_sw->set_checked(wifi);
     m_eq_sw->set_checked(eq);
     m_discord_rpc_sw->set_checked(discord_rpc);
     m_format_control->set_current(format);
