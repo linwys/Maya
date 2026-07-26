@@ -17,7 +17,7 @@ static QString extract_youtube_thumbnail(const QString& url) {
     static QRegularExpression rx(R"((?:v=|\/v\/|embed\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11}))");
     QRegularExpressionMatch match = rx.match(url);
     if (match.hasMatch()) {
-        return QString("https://img.youtube.com/vi/%1/hqdefault.jpg").arg(match.captured(1));
+        return QString("https://img.youtube.com/vi/%1/mqdefault.jpg").arg(match.captured(1));
     }
     return "";
 }
