@@ -53,7 +53,7 @@ MessageDialog::MessageDialog(QWidget* parent, const QString& title, const QStrin
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint); //for deactivate def title bar
     m_pipeline.initialize();
     setup_ui();
     connect_signals();
@@ -107,7 +107,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             event->accept();
             break;
         case Qt::Key_MediaNext:
-            m_pipeline.next();
+            m_pipeline.next(true); //trigger
             event->accept();
             break;
         case Qt::Key_MediaPrevious:
@@ -132,7 +132,7 @@ bool MainWindow::nativeEvent(const QByteArray&, void* message, qintptr*) {
             }
             return true;
         } else if (id == 2) {
-            m_pipeline.next();
+            m_pipeline.next(true); //hotkey
             return true;
         } else if (id == 3) {
             m_pipeline.prev();
@@ -170,6 +170,8 @@ void MainWindow::setup_ui() {
     m_downloads_view = new DownloadsView(&m_dl, m_stacked_widget);
     m_settings_view = new SettingsView(m_stacked_widget);
     m_playlist_view = new PlaylistView(&m_db, m_stacked_widget);
+    m_now_playing_view = new NowPlayingView(&m_pipeline, &m_db, m_stacked_widget);
+
     m_settings_view->initialize_format_selection(m_db.save_format(), [this](const QString& format) {
         m_db.set_save_format(format);
     });
@@ -184,8 +186,8 @@ void MainWindow::setup_ui() {
         m_db.crossfade(),
         m_db.gapless_playback(),
         m_db.normalize_volume(),
-        m_db.auto_download_favorites(),
-        m_db.wifi_only(),
+        //m_db.auto_download_favorites(),
+        //m_db.wifi_only(),
         m_db.equalizer_enabled(),
         m_db.discord_rpc_enabled(),
         m_db.save_format().toUpper(),
@@ -199,6 +201,7 @@ void MainWindow::setup_ui() {
     m_stacked_widget->addWidget(m_downloads_view);
     m_stacked_widget->addWidget(m_settings_view);
     m_stacked_widget->addWidget(m_playlist_view);
+    m_stacked_widget->addWidget(m_now_playing_view);
 
     main_layout->addLayout(content_layout, 1);
 
@@ -239,7 +242,9 @@ void MainWindow::connect_signals() {
 
     connect(&m_pipeline, &player::AudioPipeline::track_changed, this, [this](const player::Track& track) {
         m_controls->update_track_info(track);
+        m_now_playing_view->update_track_info(track);
         m_controls->set_playing_state(true);
+        m_now_playing_view->set_playing_state(true);
         if (m_db.equalizer_enabled()) {
             m_controls->set_visualizer_stream(m_pipeline.bass_stream());
         } else {
@@ -255,11 +260,15 @@ void MainWindow::connect_signals() {
         if (m_pipeline.state() != player::PlaybackState::Playing) return;
 
         int total = static_cast<int>(m_pipeline.current_track().duration.count());
-        m_controls->update_position(static_cast<int>(pos.count()), total);
+        int current_sec = static_cast<int>(pos.count());
+        m_controls->update_position(current_sec, total);
+        m_now_playing_view->update_position(current_sec, total);
     }, Qt::QueuedConnection);
 
     connect(&m_pipeline, &player::AudioPipeline::state_changed, this, [this](player::PlaybackState state) {
-        m_controls->set_playing_state(state == player::PlaybackState::Playing);
+        bool playing = (state == player::PlaybackState::Playing);
+        m_controls->set_playing_state(playing);
+        m_now_playing_view->set_playing_state(playing);
         if (state == player::PlaybackState::Stopped) {
             m_controls->set_visualizer_stream(0);
             if (m_db.discord_rpc_enabled()) {
@@ -299,7 +308,9 @@ void MainWindow::connect_signals() {
     });
     
     connect(m_controls, &PlayerControls::prev_clicked, &m_pipeline, &player::AudioPipeline::prev);
-    connect(m_controls, &PlayerControls::next_clicked, &m_pipeline, &player::AudioPipeline::next);
+    connect(m_controls, &PlayerControls::next_clicked, this, [this]() {
+        m_pipeline.next(true);
+    });
 
     connect(m_controls, &PlayerControls::shuffle_toggled, &m_pipeline, &player::AudioPipeline::set_shuffle);
     connect(m_controls, &PlayerControls::repeat_changed, &m_pipeline, &player::AudioPipeline::set_repeat);
@@ -314,12 +325,12 @@ void MainWindow::connect_signals() {
         m_db.set_normalize_volume(checked);
         m_pipeline.set_normalize(checked);
     });
-    connect(m_settings_view, &SettingsView::auto_download_toggled, this, [this](bool checked) {
-        m_db.set_auto_download_favorites(checked);
-    });
-    connect(m_settings_view, &SettingsView::wifi_only_toggled, this, [this](bool checked) {
-        m_db.set_wifi_only(checked);
-    });
+    //connect(m_settings_view, &SettingsView::auto_download_toggled, this, [this](bool checked) {
+        //m_db.set_auto_download_favorites(checked);
+    //});
+    //connect(m_settings_view, &SettingsView::wifi_only_toggled, this, [this](bool checked) {
+       // m_db.set_wifi_only(checked);
+    //});
     connect(m_settings_view, &SettingsView::equalizer_toggled, this, [this](bool checked) {
         m_db.set_equalizer_enabled(checked);
         m_controls->set_visualizer_stream(checked ? m_pipeline.bass_stream() : 0);
@@ -399,6 +410,20 @@ void MainWindow::connect_signals() {
         m_sidebar->navigation_changed(3);
     });
 
+    connect(m_controls, &PlayerControls::cover_clicked, this, [this]() {
+        int cur = m_stacked_widget->currentIndex();
+        if (cur == 6) {
+            switch_page(m_previous_page);
+        } else {
+            m_previous_page = cur;
+            switch_page(6);
+        }
+    });
+
+    connect(m_now_playing_view, &NowPlayingView::back_requested, this, [this]() {
+        switch_page(m_previous_page);
+    });
+
     auto* space_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
     space_shortcut->setContext(Qt::WindowShortcut);
     connect(space_shortcut, &QShortcut::activated, this, [this]() {
@@ -419,36 +444,31 @@ void MainWindow::connect_signals() {
             m_playlist_view->toggle_search();
         }
     });
+
+    auto* esc_shortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    esc_shortcut->setContext(Qt::WindowShortcut);
+    connect(esc_shortcut, &QShortcut::activated, this, [this]() {
+        if (m_stacked_widget->currentIndex() == 6) {
+            switch_page(m_previous_page);
+        }
+    });
+
+    auto* slash_shortcut = new QShortcut(QKeySequence(Qt::Key_Slash), this);
+    slash_shortcut->setContext(Qt::WindowShortcut);
+    connect(slash_shortcut, &QShortcut::activated, this, [this]() {
+        if (m_stacked_widget->currentIndex() == 6) {
+            switch_page(m_previous_page);
+        }
+    });
 }
 
 void MainWindow::switch_page(int index) {
     QWidget* widget = m_stacked_widget->widget(index);
     if (!widget) return;
 
-    if (widget->graphicsEffect()) {
-        widget->setGraphicsEffect(nullptr);
-    }
-    
-    auto* effect = new QGraphicsOpacityEffect(widget);
-    effect->setOpacity(0.0);
-    widget->setGraphicsEffect(effect);
-    
+    m_controls->setVisible(index != 6);
+
     m_stacked_widget->setCurrentIndex(index);
-    
-    auto* anim = new QPropertyAnimation(effect, "opacity", widget);
-    anim->setDuration(220);
-    anim->setStartValue(0.0);
-    anim->setEndValue(1.0);
-    
-    connect(anim, &QPropertyAnimation::finished, this, [widget, effect]() {
-        QTimer::singleShot(0, widget, [widget, effect]() {
-            if (widget->graphicsEffect() == effect) {
-                widget->setGraphicsEffect(nullptr);
-            }
-        });
-    }, Qt::QueuedConnection);
-    
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void MainWindow::open_playlist_detail(const QString& name) {
@@ -575,43 +595,43 @@ void MainWindow::apply_theme(const QString& theme) {
             QMessageBox QPushButton { background-color: #1a1a1a; color: #ffffff; border: 1px solid #333333; border-radius: 6px; padding: 6px 12px; }
             QMessageBox QPushButton:hover { background-color: #262626; }
         )");
-    }
-
-    m_playlist_view->set_theme_colors(bg_color);
-}
-
-void MainWindow::check_updates() {
-    auto* nam = new QNetworkAccessManager(this);
-    QNetworkRequest req(QUrl("https://api.github.com/repos/linwys/Maya/releases/latest"));
-    req.setHeader(QNetworkRequest::UserAgentHeader, "Maya-Player");
-    
-    connect(nam, &QNetworkAccessManager::finished, this, [this, nam](QNetworkReply* reply) {
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (doc.isObject()) {
-                QJsonObject obj = doc.object();
-                QString latest_tag = obj["tag_name"].toString().trimmed();
-                
-                auto sanitize = [](QString tag) {
-                    if (tag.startsWith('v', Qt::CaseInsensitive)) {
-                        tag.remove(0, 1);
-                    }
-                    return tag.trimmed().toLower();
-                };
-                
-                if (sanitize(latest_tag) != sanitize(TitleBar::VERSION)) {
-                    MessageDialog::show_error(this, "Update Available", 
-                        QString("A new version of Maya is available!\n\nCurrent: %1\nLatest: %2\n\nDownload the new release on GitHub.")
-                        .arg(TitleBar::VERSION)
-                        .arg(latest_tag)
-                    );
-                }
             }
+
+            m_playlist_view->set_theme_colors(bg_color);
         }
-        reply->deleteLater();
-        nam->deleteLater();
-    });
-    nam->get(req);
-}
+
+        void MainWindow::check_updates() {
+            auto* nam = new QNetworkAccessManager(this);
+            QNetworkRequest req(QUrl("https://api.github.com/repos/linwys/Maya/releases/latest"));
+            req.setHeader(QNetworkRequest::UserAgentHeader, "Maya-Player");
+            
+            connect(nam, &QNetworkAccessManager::finished, this, [this, nam](QNetworkReply* reply) {
+                if (reply->error() == QNetworkReply::NoError) {
+                    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+                    if (doc.isObject()) {
+                        QJsonObject obj = doc.object();
+                        QString latest_tag = obj["tag_name"].toString().trimmed();
+                        
+                        auto sanitize = [](QString tag) {
+                            if (tag.startsWith('v', Qt::CaseInsensitive)) {
+                                tag.remove(0, 1);
+                            }
+                            return tag.trimmed().toLower();
+                        };
+                        
+                        if (sanitize(latest_tag) != sanitize(TitleBar::VERSION)) {
+                            MessageDialog::show_error(this, "Update Available", 
+                                QString("A new version of Maya is available!\n\nCurrent: %1\nLatest: %2\n\nDownload the new release on GitHub.")
+                                .arg(TitleBar::VERSION)
+                                .arg(latest_tag)
+                            );
+                        }
+                    }
+                }
+                reply->deleteLater();
+                nam->deleteLater();
+            });
+            nam->get(req);
+        }
 
 }
