@@ -15,7 +15,14 @@ public:
         if (m == 0) return n;
         if (n == 0) return m;
 
-        std::vector<size_t> dp(n + 1);
+        size_t dp_stack[256];
+        std::vector<size_t> dp_heap;
+        size_t* dp = dp_stack;
+        if (n >= 256) {
+            dp_heap.resize(n + 1);
+            dp = dp_heap.data();
+        }
+
         for (size_t j = 0; j <= n; ++j) dp[j] = j;
 
         for (size_t i = 1; i <= m; ++i) {
