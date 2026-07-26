@@ -66,7 +66,7 @@ void DiscoverView::setup_ui() {
 
     m_results_table = new QTableWidget(this);
     m_results_table->setColumnCount(5);
-    m_results_table->setHorizontalHeaderLabels({"ARTWORK", "TITLE", "ARTIST", "DURATION", "ACTION"});
+    m_results_table->setHorizontalHeaderLabels({"ART", "TITLE", "ARTIST", "DURATION", "ACTION"});
     m_results_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_results_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     m_results_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
