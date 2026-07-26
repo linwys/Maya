@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QTimer>
 #include <vector>
+#include <atomic>
 #include "track.hpp"
 
 namespace player {
@@ -27,6 +28,7 @@ public:
     void initialize();
     void play(const Track& track);
     void play_queue(const std::vector<Track>& queue, size_t start_index);
+    void update_queue(const std::vector<Track>& queue);
     void pause();
     void resume();
     void stop();
@@ -34,10 +36,9 @@ public:
     void set_volume(float volume);
     void set_normalize(bool enabled);
 
-    void next();
+    void next(bool manual = false);
     void prev();
     void set_shuffle(bool enabled);
-    void update_queue(const std::vector<Track>& queue);
     void set_repeat(RepeatMode mode);
 
     PlaybackState state() const { return m_state; }
@@ -56,6 +57,7 @@ private:
 
     void feed_bass(void* buffer, unsigned long length);
     Q_INVOKABLE void handle_track_ended();
+    void generate_shuffle_map();
 
     PlaybackState m_state{PlaybackState::Stopped};
     Track m_current_track;
@@ -68,8 +70,11 @@ private:
     std::vector<Track> m_queue;
     size_t m_current_index{0};
     bool m_shuffle{false};
-    RepeatMode m_repeat{RepeatMode::Off};
+    RepeatMode m_repeat{player::RepeatMode::Off};
     std::atomic<int64_t> m_last_emitted_sec{-1};
+
+    std::vector<size_t> m_shuffle_map;
+    size_t m_shuffle_position{0};
 };
 
 }
