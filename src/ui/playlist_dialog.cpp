@@ -194,6 +194,13 @@ void PlaylistDialog::set_playlist_data(const QString& name, const QString& cover
     }
 }
 
+void PlaylistDialog::accept() {
+    if (playlist_name().isEmpty() || selected_tracks().empty()) {
+        return;
+    }
+    QDialog::accept();
+}
+
 void PlaylistDialog::keyPressEvent(QKeyEvent* event) {
     if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_F) {
         m_search_bar->setVisible(!m_search_bar->isVisible());
