@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include "marquee_label.hpp"
 #include "player/track.hpp"
 #include "player/audio_pipeline.hpp"
 #include "equalizer_visualizer.hpp"
@@ -44,11 +45,15 @@ signals:
     void volume_changed(float volume);
     void shuffle_toggled(bool enabled);
     void repeat_changed(player::RepeatMode mode);
+    void cover_clicked();
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     QLabel* m_cover_label{nullptr};
-    QLabel* m_title_label{nullptr};
-    QLabel* m_artist_label{nullptr};
+    MarqueeLabel* m_title_label{nullptr};
+    MarqueeLabel* m_artist_label{nullptr};
     QLabel* m_time_label{nullptr};
     QPushButton* m_play_btn{nullptr};
     QPushButton* m_shuffle_btn{nullptr};
@@ -59,6 +64,7 @@ private:
 
     bool m_shuffle{false};
     player::RepeatMode m_repeat{player::RepeatMode::Off};
+    bool m_is_playing{false};
 };
 
-}
+}//ui
