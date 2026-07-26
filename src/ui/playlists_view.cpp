@@ -1,80 +1,311 @@
-#include "playlists_view.hpp"
-#include <QFrame>
+#include "playlist_view.hpp"
+#include <QHeaderView>
 #include <QFile>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QPushButton>
 #include <QMenu>
+#include <QPainter>
 #include <QHash>
-#include "playlist_dialog.hpp"
+#include <QApplication>
+#include <QKeyEvent>
+#include <QDateTime>
+#include <QItemSelectionModel>
 #include "icons.hpp"
-#include "main_window.hpp"
 
 namespace ui {
 
-PlaylistsView::PlaylistsView(player::Db* db, QWidget* parent) 
-    : QWidget(parent), m_db(db) {
-    setup_ui();
-    connect(m_db, &player::Db::playlists_changed, this, &PlaylistsView::refresh);
-    refresh();
+QSet<QAbstractItemView*> TrackDelegate::s_views;
+QTimer* TrackDelegate::s_timer = nullptr;
+
+TrackDelegate::TrackDelegate(QWidget* parent) : QStyledItemDelegate(parent) {
+    if (auto* view = qobject_cast<QAbstractItemView*>(parent)) {
+        s_views.insert(view);
+        if (!s_timer) {
+            s_timer = new QTimer(qApp);
+            s_timer->setInterval(30);
+            QObject::connect(s_timer, &QTimer::timeout, []() {
+                for (auto* v : s_views) {
+                    if (v && v->isVisible() && v->selectionModel() && v->selectionModel()->hasSelection()) {
+                        v->viewport()->update();
+                    }
+                }
+            });
+            s_timer->start();
+        }
+    }
 }
 
-void PlaylistsView::setup_ui() {
+TrackDelegate::~TrackDelegate() {
+    if (auto* view = qobject_cast<QAbstractItemView*>(parent())) {
+        s_views.remove(view);
+        if (s_views.isEmpty() && s_timer) {
+            s_timer->stop();
+            s_timer->deleteLater();
+            s_timer = nullptr;
+        }
+    }
+}
+
+void TrackDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const {
+    QStyleOptionViewItem opt = option;
+    initStyleOption(&opt, index);
+    if (auto* style = opt.widget ? opt.widget->style() : QApplication::style()) {
+        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, painter, opt.widget);
+    }
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing);
+
+    QString title = index.data(Qt::DisplayRole).toString();
+    QString artist = index.data(Qt::UserRole).toString();
+    QString file_path = index.data(Qt::UserRole + 1).toString();
+    int img_size = 52;
+    int x = opt.rect.x() + 8;
+    int y = opt.rect.y() + (opt.rect.height() - img_size) / 2;
+    QPixmap pix = ui::icons::utils::get_cached_cover(file_path, img_size);
+    if (!pix.isNull()) {
+        painter->drawPixmap(x, y, pix);
+    } else {
+        painter->fillRect(x, y, img_size, img_size, QColor("#1a1a1a"));
+    }
+
+    int tx = x + img_size + 12;
+    int ty = opt.rect.y() + (opt.rect.height() - 40) / 2;
+    
+    painter->setPen(opt.palette.text().color());
+    bool is_selected = (opt.state & QStyle::State_Selected);
+    if (is_selected) {
+        painter->setPen(opt.palette.highlightedText().color());
+    }
+    QFont tf = opt.font;
+    tf.setBold(true);
+    tf.setPointSize(10);
+    painter->setFont(tf);
+
+    int available_w = opt.rect.width() - tx - 8;
+    int text_w = painter->fontMetrics().horizontalAdvance(title);
+
+    if (is_selected && text_w > available_w) {
+        qint64 ms = QDateTime::currentMSecsSinceEpoch();
+        int max_scroll = text_w - available_w + 30; // scroll past end
+        int cycle_ms = 8000;
+        int progress = ms % cycle_ms;
+        int scroll_pos = 0;
+        if (progress < 2000) {
+            scroll_pos = 0;
+        } else if (progress < 6000) {
+            double ratio = static_cast<double>(progress - 2000) / 4000.0;
+            scroll_pos = static_cast<int>(ratio * max_scroll);
+        } else {
+            scroll_pos = max_scroll;
+        }
+        painter->save();
+        painter->setClipRect(QRect(tx, opt.rect.y(), available_w, opt.rect.height()));
+        painter->drawText(QRect(tx - scroll_pos, ty, text_w + 100, 20), Qt::AlignLeft | Qt::AlignVCenter, title);
+        painter->restore();
+    } else {
+        QString elided_title = painter->fontMetrics().elidedText(title, Qt::ElideRight, available_w);
+        painter->drawText(QRect(tx, ty, available_w, 20), Qt::AlignLeft | Qt::AlignVCenter, elided_title);
+    }
+
+    QColor muted_color = is_selected ? opt.palette.highlightedText().color() : QColor("#8c8c8c");
+    painter->setPen(muted_color);
+    QFont af = opt.font;
+    af.setPointSize(8);
+    painter->setFont(af);
+    painter->drawText(QRect(tx, ty + 20, opt.rect.width() - tx - 8, 16), Qt::AlignLeft | Qt::AlignVCenter, artist);
+
+    painter->restore();
+}
+
+QSize TrackDelegate::sizeHint(const QStyleOptionViewItem&, const QModelIndex&) const {
+    return QSize(200, 72);
+}
+
+void PlaylistHeader::set_data(const QPixmap& cover, const QColor& theme_bg) {
+    m_cover = cover;
+    m_theme_bg = theme_bg;
+    update();
+}
+
+void PlaylistHeader::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+
+    painter.fillRect(rect(), m_theme_bg);
+
+    if (!m_cover.isNull()) {
+        painter.setOpacity(0.45);
+        QPixmap scaled = m_cover.scaled(width(), width(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        int y = (height() - scaled.height()) / 2;
+        painter.drawPixmap(0, y, scaled);
+
+        painter.setOpacity(1.0);
+        QLinearGradient hor_gradient(0, 0, width(), 0);
+        hor_gradient.setColorAt(0.0, Qt::transparent);
+        hor_gradient.setColorAt(0.4, QColor(m_theme_bg.red(), m_theme_bg.green(), m_theme_bg.blue(), 100));
+        hor_gradient.setColorAt(0.7, QColor(m_theme_bg.red(), m_theme_bg.green(), m_theme_bg.blue(), 220));
+        hor_gradient.setColorAt(1.0, m_theme_bg);
+        painter.fillRect(rect(), hor_gradient);
+
+        QLinearGradient vert_gradient(0, height() - 80, 0, height());
+        vert_gradient.setColorAt(0.0, Qt::transparent);
+        vert_gradient.setColorAt(1.0, m_theme_bg);
+        painter.fillRect(rect(), vert_gradient);
+    }
+}
+
+PlaylistView::PlaylistView(player::Db* db, QWidget* parent)
+    : QWidget(parent), m_db(db) {
+    setup_ui();
+    connect(m_db, &player::Db::library_changed, this, &PlaylistView::refresh);
+    connect(m_db, &player::Db::playlists_changed, this, [this]() {
+        if (m_playlist_name == "Favourites") refresh();
+    });
+    connect(m_db, &player::Db::track_favorite_changed, this, &PlaylistView::handle_favorite_changed);
+}
+
+void PlaylistView::setup_ui() {
     auto* main_layout = new QVBoxLayout(this);
-    main_layout->setContentsMargins(32, 32, 32, 32);
-    main_layout->setSpacing(24);
+    main_layout->setContentsMargins(0, 0, 0, 0);
+    main_layout->setSpacing(0);
 
-    auto* top_layout = new QHBoxLayout();
-    auto* header_label = new QLabel("Playlists", this);
-    header_label->setStyleSheet("font-size: 28px; font-weight: bold;");
-    top_layout->addWidget(header_label);
-    top_layout->addStretch();
+    m_header_widget = new PlaylistHeader(this);
+    m_header_widget->setObjectName("playlist_header");
 
-    auto* create_btn = new QPushButton("+ New Playlist", this);
-    create_btn->setFixedSize(120, 36);
-    connect(create_btn, &QPushButton::clicked, this, [this]() {
-        PlaylistDialog dialog(m_db, this);
-        if (dialog.exec() == QDialog::Accepted) {
-            QString name = dialog.playlist_name();
-            if (!name.isEmpty()) {
-                m_db->create_playlist(name, dialog.cover_path());
-                m_db->add_to_playlist_batch(name, dialog.selected_tracks());
-            }
+    auto* header_layout = new QHBoxLayout(m_header_widget);
+    header_layout->setContentsMargins(32, 32, 32, 32);
+    header_layout->setSpacing(24);
+
+    m_cover_label = new QLabel(m_header_widget);
+    m_cover_label->setFixedSize(140, 140);
+    m_cover_label->setStyleSheet("background-color: #1a1a1a; border-radius: 8px;");
+    m_cover_label->setScaledContents(true);
+    header_layout->addWidget(m_cover_label);
+
+    auto* text_layout = new QVBoxLayout();
+    text_layout->setSpacing(4);
+    
+    auto* type_lbl = new QLabel("PLAYLIST", m_header_widget);
+    type_lbl->setStyleSheet("font-size: 11px; font-weight: bold; color: #8c8c8c; letter-spacing: 1px;");
+    text_layout->addWidget(type_lbl);
+
+    m_title_label = new QLabel(m_header_widget);
+    m_title_label->setStyleSheet("font-size: 32px; font-weight: bold; color: #ffffff;");
+    text_layout->addWidget(m_title_label);
+
+    m_sub_label = new QLabel(m_header_widget);
+    m_sub_label->setStyleSheet("font-size: 13px; color: #8c8c8c;");
+    text_layout->addWidget(m_sub_label);
+    
+    header_layout->addLayout(text_layout, 1);
+    main_layout->addWidget(m_header_widget);
+
+    m_search_bar = new QLineEdit(this);
+    m_search_bar->setPlaceholderText("Search inside playlist... (Ctrl + F to hide)");
+    m_search_bar->setVisible(false);
+    m_search_bar->setStyleSheet(R"(
+        QLineEdit {
+            background-color: #121212; border: 1px solid #1a1a1a; border-radius: 6px; padding: 8px 12px; color: #ffffff; font-size: 13px;
+        }
+    )");
+    connect(m_search_bar, &QLineEdit::textChanged, this, [this](const QString& text) {
+        m_model->set_search_query(text);
+        emit queue_updated(current_queue());
+    });
+    main_layout->addWidget(m_search_bar);
+
+    m_table = new QTableView(this);
+    m_model = new TrackModel(this);
+    m_table->setModel(m_model);
+
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
+    
+    m_table->setColumnWidth(0, 55);
+    m_table->setColumnWidth(2, 200);
+    m_table->setColumnWidth(3, 60);
+    m_table->setColumnWidth(4, 80);
+
+    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->setFocusPolicy(Qt::NoFocus);
+    m_table->setShowGrid(false);
+    m_table->verticalHeader()->setVisible(false);
+    m_table->verticalHeader()->setDefaultSectionSize(72);
+    m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_table->setSortingEnabled(true);
+    m_table->sortByColumn(0, Qt::AscendingOrder);
+
+    m_delegate = new TrackDelegate(this);
+    m_table->setItemDelegateForColumn(1, m_delegate);
+
+    main_layout->addWidget(m_table);
+
+    connect(m_table, &QTableView::clicked, this, [this](const QModelIndex& index) {
+        if (!index.isValid()) return;
+        int row = index.row();
+        int col = index.column();
+        if (col == 3) {
+            auto track_id_str = m_model->data(m_model->index(row, 0), Qt::UserRole).toString();
+            auto id = QUuid::fromString(track_id_str);
+            m_db->toggle_favorite(id);
+        } else {
+            emit play_requested(current_queue(), static_cast<size_t>(row));
         }
     });
 
-    top_layout->addWidget(create_btn);
-    main_layout->addLayout(top_layout);
+    connect(m_table->horizontalHeader(), &QHeaderView::sortIndicatorChanged, this, [this]() {
+        emit queue_updated(current_queue());
+    });
 
-    auto* scroll = new QScrollArea(this);
-    scroll->setWidgetResizable(true);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setStyleSheet("background-color: transparent; border: none;");
+    connect(m_table, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QModelIndex index = m_table->indexAt(pos);
+        if (!index.isValid()) return;
 
-    auto* container = new QWidget(scroll);
-    container->setStyleSheet("background-color: transparent;");
-    
-    auto* container_layout = new QVBoxLayout(container);
-    container_layout->setContentsMargins(0, 0, 0, 0);
-    container_layout->setSpacing(0);
+        int row = index.row();
+        const auto& track = m_model->get_track(row);
 
-    m_grid_layout = new QGridLayout();
-    m_grid_layout->setSpacing(24);
-    container_layout->addLayout(m_grid_layout);
-    container_layout->addStretch();
+        auto* menu = new QMenu(this);
+        menu->setStyleSheet("background-color: #121212; color: #ffffff; border: 1px solid #1a1a1a;");
 
-    scroll->setWidget(container);
-    main_layout->addWidget(scroll);
+        auto* play_act = menu->addAction("Play");
+        auto* remove_act = menu->addAction("Remove from Playlist");
+
+        QAction* selected = menu->exec(m_table->viewport()->mapToGlobal(pos));
+        if (selected == play_act) {
+            emit play_requested(current_queue(), static_cast<size_t>(row));
+        } else if (selected == remove_act) {
+            m_db->remove_from_playlist(m_playlist_name, track.id);
+        }
+        menu->deleteLater();
+    });
 }
 
-void PlaylistsView::refresh() {
-    m_grid_layout->setEnabled(false);
+void PlaylistView::open_playlist(const QString& name) {
+    m_playlist_name = name;
+    refresh();
+}
 
-    QLayoutItem* item;
-    while ((item = m_grid_layout->takeAt(0)) != nullptr) {
-        delete item->widget();
-        delete item;
-    }
+void PlaylistView::set_theme_colors(const QColor& bg_color) {
+    m_theme_bg = bg_color;
+    m_header_widget->set_data(m_current_cover, m_theme_bg);
+}
 
+void PlaylistView::refresh() {
+    m_tracks.clear();
     const auto& playlists = m_db->playlists();
+    if (!playlists.contains(m_playlist_name)) return;
+
+    const auto& current_pl = playlists.at(m_playlist_name);
     const auto& all_tracks = m_db->tracks();
 
     QHash<QUuid, const player::Track*> track_lookup;
@@ -83,95 +314,67 @@ void PlaylistsView::refresh() {
         track_lookup.insert(track.id, &track);
     }
 
-    int row = 0;
-    int col = 0;
-
-    for (const auto& [name, pl] : playlists) {
-        auto* card = new QFrame(this);
-        card->setFixedSize(220, 300);
-        card->setObjectName("playlist_card");
-
-        auto* card_layout = new QVBoxLayout(card);
-        card_layout->setContentsMargins(16, 16, 16, 16);
-        card_layout->setSpacing(8);
-
-        auto* art_placeholder = new QLabel(card);
-        art_placeholder->setFixedSize(188, 180);
-        art_placeholder->setStyleSheet("background-color: #1a1a1a; border-radius: 8px;");
-        art_placeholder->setScaledContents(true);
-
-        QPixmap cover_pix;
-        if (!pl.cover_path.isEmpty() && QFile::exists(pl.cover_path)) {
-            cover_pix.load(pl.cover_path);
-        } else if (!pl.track_ids.empty()) {
-            QUuid first_id = pl.track_ids[0];
-            if (track_lookup.contains(first_id)) {
-                cover_pix = icons::utils::get_cached_cover(track_lookup.value(first_id)->file_path, 188);
-            }
-        }
-
-        if (!cover_pix.isNull()) {
-            art_placeholder->setPixmap(icons::utils::crop_to_square(cover_pix, 188));
-        }
-
-        card_layout->addWidget(art_placeholder);
-
-        auto* name_label = new QLabel(name, card);
-        name_label->setStyleSheet("font-size: 15px; font-weight: bold; background: transparent; border: none;");
-        card_layout->addWidget(name_label);
-
-        auto* count_label = new QLabel(QString("%1 tracks").arg(pl.track_ids.size()), card);
-        count_label->setStyleSheet("font-size: 12px; color: #8c8c8c; background: transparent; border: none;");
-        card_layout->addWidget(count_label);
-
-        auto* overlay_btn = new QPushButton(card);
-        overlay_btn->setGeometry(0, 0, 220, 300);
-        overlay_btn->setStyleSheet("background: transparent; border: none;");
-        overlay_btn->setCursor(Qt::PointingHandCursor);
-        overlay_btn->setFocusPolicy(Qt::NoFocus);
-        overlay_btn->setContextMenuPolicy(Qt::CustomContextMenu);
-        
-        connect(overlay_btn, &QPushButton::clicked, this, [this, name]() {
-            auto* main_win = qobject_cast<MainWindow*>(this->window());
-            if (main_win) {
-                QMetaObject::invokeMethod(main_win, "open_playlist_detail", Qt::QueuedConnection, Q_ARG(QString, name));
-            }
-        });
-
-        connect(overlay_btn, &QWidget::customContextMenuRequested, this, [this, name](const QPoint&) {
-            auto* menu = new QMenu(this);
-            menu->setStyleSheet("background-color: #121212; color: #ffffff; border: 1px solid #1a1a1a;");
-            
-            auto* edit_act = menu->addAction("Edit Playlist");
-            auto* delete_act = menu->addAction("Delete Playlist");
-            
-            QAction* selected = menu->exec(QCursor::pos());
-            if (selected == edit_act) {
-                const auto& inner_playlists = m_db->playlists();
-                if (inner_playlists.contains(name)) {
-                    const auto& current_pl = inner_playlists.at(name);
-                    PlaylistDialog dialog(m_db, this);
-                    dialog.set_playlist_data(current_pl.name, current_pl.cover_path, current_pl.track_ids);
-                    if (dialog.exec() == QDialog::Accepted) {
-                        m_db->update_playlist_data(name, dialog.cover_path(), dialog.selected_tracks());
-                    }
-                }
-            } else if (selected == delete_act) {
-                m_db->remove_playlist(name);
-            }
-            menu->deleteLater();
-        });
-
-        m_grid_layout->addWidget(card, row, col);
-
-        col++;
-        if (col >= 4) {
-            col = 0;
-            row++;
+    m_tracks.reserve(current_pl.track_ids.size());
+    for (const auto& id : current_pl.track_ids) {
+        if (track_lookup.contains(id)) {
+            m_tracks.push_back(*track_lookup.value(id));
         }
     }
 
-    m_grid_layout->setEnabled(true);
+    m_title_label->setText(m_playlist_name);
+    m_sub_label->setText(QString("%1 tracks • added by you").arg(m_tracks.size()));
+
+    QPixmap cover_pix;
+    if (!current_pl.cover_path.isEmpty() && QFile::exists(current_pl.cover_path)) {
+        cover_pix.load(current_pl.cover_path);
+    } else if (!m_tracks.empty()) {
+        cover_pix = icons::utils::get_cached_cover(m_tracks[0].file_path, 140);
+    }
+
+    m_current_cover = cover_pix;
+    m_header_widget->set_data(m_current_cover, m_theme_bg);
+
+    if (!cover_pix.isNull()) {
+        m_cover_label->setPixmap(icons::utils::crop_to_square(cover_pix, 140));
+    } else {
+        m_cover_label->setPixmap(QPixmap());
+    }
+
+    m_table->setUpdatesEnabled(false);
+    m_model->set_tracks(&m_tracks);
+    m_table->setUpdatesEnabled(true);
+    emit queue_updated(current_queue());
+}
+
+void PlaylistView::handle_favorite_changed(const QUuid&, bool) {
+    refresh();
+}
+
+void PlaylistView::toggle_search() {
+    m_search_bar->setVisible(!m_search_bar->isVisible());
+    if (m_search_bar->isVisible()) {
+        m_search_bar->setFocus();
+    } else {
+        m_search_bar->clear();
+    }
+}
+
+std::vector<player::Track> PlaylistView::current_queue() const {
+    std::vector<player::Track> queue;
+    queue.reserve(m_model->rowCount());
+    for (int i = 0; i < m_model->rowCount(); ++i) {
+        queue.push_back(m_model->get_track(i));
+    }
+    return queue;
+}
+
+void PlaylistView::keyPressEvent(QKeyEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_F) {
+        toggle_search();
+        event->accept();
+    } else {
+        QWidget::keyPressEvent(event);
+    }
 }
 
 }
