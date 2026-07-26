@@ -1,13 +1,15 @@
 #include "audio_pipeline.hpp"
 #include <bass.h>
 #include <algorithm>
+#include <random>
+#include <numeric>
 #include <QDir>
 
 namespace player {
 
 AudioPipeline::AudioPipeline(QObject* parent) : QObject(parent) {
     m_timer = new QTimer(this);
-    m_timer->setInterval(200);//write
+    m_timer->setInterval(200);
     connect(m_timer, &QTimer::timeout, this, [this]() {
         if (m_state == PlaybackState::Playing && m_bass_stream) {
             emit position_updated(current_position());
@@ -45,6 +47,9 @@ void AudioPipeline::play(const Track& track) {
     QString native_path = QDir::toNativeSeparators(track.file_path);
 
 #if defined(Q_OS_WIN)
+    if (!native_path.startsWith("\\\\?\\") && QDir::isAbsolutePath(native_path)) {
+        native_path = "\\\\?\\" + native_path;
+    }
     const void* file_ptr = native_path.utf16();
     unsigned long unicode_flag = BASS_UNICODE;
 #else
@@ -79,13 +84,29 @@ void AudioPipeline::play(const Track& track) {
 void AudioPipeline::play_queue(const std::vector<Track>& queue, size_t start_index) {
     m_queue = queue;
     m_current_index = start_index;
+    if (m_shuffle) {
+        generate_shuffle_map();
+    }
     if (start_index < m_queue.size()) {
         play(m_queue[start_index]);
     }
 }
 
+void AudioPipeline::update_queue(const std::vector<Track>& queue) {
+    m_queue = queue;
+    auto it = std::find_if(m_queue.begin(), m_queue.end(), [this](const Track& t) {
+        return t.id == m_current_track.id;
+    });
+    if (it != m_queue.end()) {
+        m_current_index = std::distance(m_queue.begin(), it);
+    }
+    if (m_shuffle) {
+        generate_shuffle_map();
+    }
+}
+
 void AudioPipeline::pause() {
-    if (m_state == PlaybackState::Playing && m_bass_stream) { //fadeout
+    if (m_state == PlaybackState::Playing && m_bass_stream) {
         BASS_ChannelSlideAttribute(m_bass_stream, BASS_ATTRIB_VOL, 0.0f, 500);
         QTimer::singleShot(500, this, [this]() {
             if (m_bass_stream && m_state == PlaybackState::Playing) {
@@ -98,7 +119,7 @@ void AudioPipeline::pause() {
 }
 
 void AudioPipeline::resume() {
-    if (m_state == PlaybackState::Paused && m_bass_stream) { //fadein
+    if (m_state == PlaybackState::Paused && m_bass_stream) {
         BASS_ChannelPlay(m_bass_stream, FALSE);
         BASS_ChannelSlideAttribute(m_bass_stream, BASS_ATTRIB_VOL, m_volume, 1000);
         m_state = PlaybackState::Playing;
@@ -160,17 +181,28 @@ void AudioPipeline::set_normalize(bool enabled) {
     }
 }
 
-void AudioPipeline::next() {
+void AudioPipeline::next(bool manual) {
     if (m_queue.empty()) return;
     if (m_repeat == RepeatMode::One) {
         play(m_queue[m_current_index]);
         return;
     }
     if (m_shuffle) {
-        m_current_index = static_cast<size_t>(rand() % static_cast<int>(m_queue.size()));
+        if (m_shuffle_map.empty() || m_shuffle_map.size() != m_queue.size()) {
+            generate_shuffle_map();
+        }
+        m_shuffle_position++;
+        if (m_shuffle_position >= m_shuffle_map.size()) {
+            if (m_repeat == RepeatMode::Off && !manual) { //fast manual wrap
+                stop();
+                return;
+            }
+            generate_shuffle_map();
+        }
+        m_current_index = m_shuffle_map[m_shuffle_position];
     } else {
         m_current_index = (m_current_index + 1) % m_queue.size();
-        if (m_current_index == 0 && m_repeat == RepeatMode::Off) {
+        if (m_current_index == 0 && m_repeat == RepeatMode::Off && !manual) { //fast manual wrap
             stop();
             return;
         }
@@ -180,12 +212,16 @@ void AudioPipeline::next() {
 
 void AudioPipeline::prev() {
     if (m_queue.empty()) return;
-    if (current_position().count() > 3) {
-        seek(0);
-        return;
-    }
     if (m_shuffle) {
-        m_current_index = static_cast<size_t>(rand() % static_cast<int>(m_queue.size()));
+        if (m_shuffle_map.empty() || m_shuffle_map.size() != m_queue.size()) {
+            generate_shuffle_map();
+        }
+        if (m_shuffle_position == 0) {
+            m_shuffle_position = m_shuffle_map.size() - 1;
+        } else {
+            m_shuffle_position--;
+        }
+        m_current_index = m_shuffle_map[m_shuffle_position];
     } else {
         if (m_current_index == 0) {
             m_current_index = m_queue.size() - 1;
@@ -197,16 +233,11 @@ void AudioPipeline::prev() {
 }
 
 void AudioPipeline::set_shuffle(bool enabled) {
-    m_shuffle = enabled;
-}
-
-void AudioPipeline::update_queue(const std::vector<Track>& queue) {
-    m_queue = queue;
-    auto it = std::find_if(m_queue.begin(), m_queue.end(), [this](const Track& t) {
-        return t.id == m_current_track.id;
-    });
-    if (it != m_queue.end()) {
-        m_current_index = std::distance(m_queue.begin(), it);
+    if (m_shuffle != enabled) {
+        m_shuffle = enabled;
+        if (m_shuffle) {
+            generate_shuffle_map();
+        }
     }
 }
 
@@ -231,4 +262,26 @@ void AudioPipeline::handle_track_ended() {
     next();
 }
 
-}
+void AudioPipeline::generate_shuffle_map() {//for in
+    m_shuffle_map.clear();
+    if (m_queue.empty()) return;
+
+    m_shuffle_map.resize(m_queue.size());
+    std::iota(m_shuffle_map.begin(), m_shuffle_map.end(), 0);
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    if (m_current_index < m_queue.size()) {
+        std::swap(m_shuffle_map[0], m_shuffle_map[m_current_index]);
+        if (m_queue.size() > 1) {
+            std::shuffle(m_shuffle_map.begin() + 1, m_shuffle_map.end(), g);
+        }
+        m_shuffle_position = 0;
+    } else {
+        std::shuffle(m_shuffle_map.begin(), m_shuffle_map.end(), g);
+        m_shuffle_position = 0;
+    }
+}//audiopipeline
+
+}//player
