@@ -14,6 +14,7 @@
 #include "downloads_view.hpp"
 #include "settings_view.hpp"
 #include "playlist_view.hpp"
+#include "now_playing_view.hpp"
 #include "player/audio_pipeline.hpp"
 #include "player/db.hpp"
 #include "player/dl_mgr.hpp"
@@ -65,7 +66,9 @@ private:
     DownloadsView* m_downloads_view{nullptr};
     SettingsView* m_settings_view{nullptr};
     PlaylistView* m_playlist_view{nullptr};
+    NowPlayingView* m_now_playing_view{nullptr}; // +
 
+    int m_previous_page{0};
     QString m_active_play_source;
 };
 
