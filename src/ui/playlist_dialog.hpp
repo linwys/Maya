@@ -30,6 +30,8 @@ public:
     std::vector<QUuid> selected_tracks() const;
     void set_playlist_data(const QString& name, const QString& cover, const std::vector<QUuid>& track_ids);
 
+    void accept() override;
+
 protected:
     void keyPressEvent(QKeyEvent* event) override;
 
