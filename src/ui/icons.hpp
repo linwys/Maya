@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QImageReader>
 #include <QDir>
+#include <QSet>
 #include <cstdint>
 #include <bass.h>
 
@@ -114,6 +115,24 @@ inline const char* clock = R"(
     </svg>
 )";
 
+inline const char* volume = R"(
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 9v6h4l5 5V5L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" fill="#ffffff"/>
+    </svg>
+)";
+
+inline const char* minimize = R"(
+    <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 5H11V7H1V5Z" fill="#ffffff"/>
+    </svg>
+)";
+
+inline const char* close = R"(
+    <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 1L11 11M11 1L1 11" stroke="#ffffff" stroke-width="2"/>
+    </svg>
+)";
+
 inline QIcon from_svg(const char* svg_data, const QColor& color) {
     QSvgRenderer renderer;
     renderer.load(QByteArray(svg_data));
@@ -129,8 +148,13 @@ inline QIcon from_svg(const char* svg_data, const QColor& color) {
 
 namespace utils {
     inline QCache<QString, QPixmap>& get_cover_cache() {
-        static QCache<QString, QPixmap> cache(150);
+        static QCache<QString, QPixmap> cache(2 * 1024 * 1024); 
         return cache;
+    }
+
+    inline QSet<QString>& fucku() {
+        static QSet<QString> set;
+        return set;
     }
 
     inline void clear_cached_cover(const QString& file_path) {
@@ -138,6 +162,8 @@ namespace utils {
         get_cover_cache().remove(QString("%1_64").arg(file_path));
         get_cover_cache().remove(QString("%1_140").arg(file_path));
         get_cover_cache().remove(QString("%1_188").arg(file_path));
+        get_cover_cache().remove(QString("%1_400").arg(file_path));
+        fucku().remove(file_path);
     }
 
     inline QPixmap crop_to_square(const QPixmap& src, int target_size) {
@@ -156,6 +182,12 @@ namespace utils {
             return *cache.object(key);
         }
         
+        if (fucku().contains(file_path)) {
+            QPixmap* empty_pix = new QPixmap();
+            cache.insert(key, empty_pix, 1);
+            return *empty_pix;
+        }
+
         QString base = file_path;
         int dot = base.lastIndexOf('.');
         if (dot != -1) {
@@ -193,12 +225,10 @@ namespace utils {
             }
         } else if (file_path.endsWith(".flac", Qt::CaseInsensitive)) {
             QString native_path = QDir::toNativeSeparators(file_path);
-#if defined(Q_OS_WIN)
+            if (!native_path.startsWith("\\\\?\\") && QDir::isAbsolutePath(native_path)) {
+                native_path = "\\\\?\\" + native_path;
+            }
             const void* file_ptr = native_path.utf16();
-#else
-            QByteArray path_utf8 = native_path.toUtf8();
-            const void* file_ptr = path_utf8.constData();
-#endif
             unsigned long temp_stream = BASS_StreamCreateFile(FALSE, file_ptr, 0, 0, BASS_STREAM_DECODE | BASS_UNICODE);
             if (temp_stream) {
                 const TAG_FLAC_PICTURE* pic = reinterpret_cast<const TAG_FLAC_PICTURE*>(BASS_ChannelGetTags(temp_stream, BASS_TAG_FLAC_PICTURE));
@@ -212,7 +242,12 @@ namespace utils {
             }
         }
         
-        cache.insert(key, result);
+        if (result->isNull()) {
+            fucku().insert(file_path);
+        }
+
+        int cost = result->isNull() ? 1 : (result->width() * result->height() * 4);
+        cache.insert(key, result, cost);
         return *result;
     }
 }
