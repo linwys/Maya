@@ -12,6 +12,15 @@ EqualizerVisualizer::EqualizerVisualizer(QWidget* parent)
     connect(&m_timer, &QTimer::timeout, this, [this]() {
         update();
     });
+
+    const size_t num_bars = m_bars.size();
+    m_bands.resize(num_bars);
+    for (size_t i = 0; i < num_bars; ++i) {
+        size_t b0 = static_cast<size_t>(std::pow(2.0, i * 10.0 / (num_bars - 1)) * 1024.0 / 1024.0);
+        size_t b1 = static_cast<size_t>(std::pow(2.0, (i + 1) * 10.0 / (num_bars - 1)) * 1024.0 / 1024.0);
+        if (b1 <= b0) b1 = b0 + 1;
+        m_bands[i] = {b0, b1};
+    }
 }
 
 void EqualizerVisualizer::start(unsigned long bass_stream_handle) {
@@ -44,16 +53,15 @@ void EqualizerVisualizer::paintEvent(QPaintEvent* event) {
     const float h = static_cast<float>(height());
 
     for (size_t i = 0; i < num_bars; ++i) {
-        size_t b0 = static_cast<size_t>(pow(2.0, i * 10.0 / (num_bars - 1)) * 1024.0 / 1024.0);
-        size_t b1 = static_cast<size_t>(pow(2.0, (i + 1) * 10.0 / (num_bars - 1)) * 1024.0 / 1024.0);
-        if (b1 <= b0) b1 = b0 + 1;
+        size_t b0 = m_bands[i].first;
+        size_t b1 = m_bands[i].second;
 
         float peak = 0.0f;
         for (size_t j = b0; j < b1 && j < 1024; ++j) {
             if (fft[j] > peak) peak = fft[j];
         }
 
-        float val = sqrt(peak) * 3.0f;
+        float val = std::sqrt(peak) * 3.0f;
         if (val > 1.0f) val = 1.0f;
 
         m_bars[i] = m_bars[i] * 0.75f + val * 0.25f;
