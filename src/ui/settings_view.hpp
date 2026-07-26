@@ -62,8 +62,8 @@ public:
         bool crossfade,
         bool gapless,
         bool normalize,
-        bool auto_dl,
-        bool wifi,
+        //bool auto_dl,
+        //bool wifi,
         bool eq,
         bool discord_rpc,
         const QString& format,
@@ -76,8 +76,8 @@ signals:
     void crossfade_toggled(bool checked);
     void gapless_toggled(bool checked);
     void normalize_toggled(bool checked);
-    void auto_download_toggled(bool checked);
-    void wifi_only_toggled(bool checked);
+    //void auto_download_toggled(bool checked);
+    //void wifi_only_toggled(bool checked);
     void equalizer_toggled(bool checked);
     void discord_rpc_toggled(bool checked);
     void config_dir_requested();
@@ -95,8 +95,8 @@ private:
     ToggleSwitch* m_crossfade_sw{nullptr};
     ToggleSwitch* m_gapless_sw{nullptr};
     ToggleSwitch* m_normalize_sw{nullptr};
-    ToggleSwitch* m_auto_download_sw{nullptr};
-    ToggleSwitch* m_wifi_only_sw{nullptr};
+    //ToggleSwitch* m_auto_download_sw{nullptr};
+    //ToggleSwitch* m_wifi_only_sw{nullptr};
     ToggleSwitch* m_eq_sw{nullptr};
     ToggleSwitch* m_discord_rpc_sw{nullptr};
     QPushButton* m_config_dir_btn{nullptr};
