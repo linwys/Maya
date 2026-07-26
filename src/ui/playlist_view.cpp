@@ -9,9 +9,43 @@
 #include <QHash>
 #include <QApplication>
 #include <QKeyEvent>
+#include <QDateTime>
+#include <QItemSelectionModel>
 #include "icons.hpp"
 
 namespace ui {
+
+QSet<QAbstractItemView*> TrackDelegate::s_views;
+QTimer* TrackDelegate::s_timer = nullptr;
+
+TrackDelegate::TrackDelegate(QWidget* parent) : QStyledItemDelegate(parent) {
+    if (auto* view = qobject_cast<QAbstractItemView*>(parent)) {
+        s_views.insert(view);
+        if (!s_timer) {
+            s_timer = new QTimer(qApp);
+            s_timer->setInterval(30);
+            QObject::connect(s_timer, &QTimer::timeout, []() {
+                for (auto* v : s_views) {
+                    if (v && v->isVisible() && v->selectionModel() && v->selectionModel()->hasSelection()) {
+                        v->viewport()->update();
+                    }
+                }
+            });
+            s_timer->start();
+        }
+    }
+}
+
+TrackDelegate::~TrackDelegate() {
+    if (auto* view = qobject_cast<QAbstractItemView*>(parent())) {
+        s_views.remove(view);
+        if (s_views.isEmpty() && s_timer) {
+            s_timer->stop();
+            s_timer->deleteLater();
+            s_timer = nullptr;
+        }
+    }
+}
 
 void TrackDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const {
     QStyleOptionViewItem opt = option;
@@ -40,16 +74,42 @@ void TrackDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
     int ty = opt.rect.y() + (opt.rect.height() - 40) / 2;
     //draw track title
     painter->setPen(opt.palette.text().color());
-    if (opt.state & QStyle::State_Selected) {
+    bool is_selected = (opt.state & QStyle::State_Selected);
+    if (is_selected) {
         painter->setPen(opt.palette.highlightedText().color());
     }
     QFont tf = opt.font;
     tf.setBold(true);
     tf.setPointSize(10);
     painter->setFont(tf);
-    painter->drawText(QRect(tx, ty, opt.rect.width() - tx - 8, 20), Qt::AlignLeft | Qt::AlignVCenter, title);
 
-    QColor muted_color = opt.state & QStyle::State_Selected ? opt.palette.highlightedText().color() : QColor("#8c8c8c");
+    int available_w = opt.rect.width() - tx - 8;
+    int text_w = painter->fontMetrics().horizontalAdvance(title);
+
+    if (is_selected && text_w > available_w) {
+        qint64 ms = QDateTime::currentMSecsSinceEpoch();
+        int max_scroll = text_w - available_w + 30; // scroll past end
+        int cycle_ms = 8000;
+        int progress = ms % cycle_ms;
+        int scroll_pos = 0;
+        if (progress < 2000) {
+            scroll_pos = 0;
+        } else if (progress < 6000) {
+            double ratio = static_cast<double>(progress - 2000) / 4000.0;
+            scroll_pos = static_cast<int>(ratio * max_scroll);
+        } else {
+            scroll_pos = max_scroll;
+        }
+        painter->save();
+        painter->setClipRect(QRect(tx, opt.rect.y(), available_w, opt.rect.height()));
+        painter->drawText(QRect(tx - scroll_pos, ty, text_w + 100, 20), Qt::AlignLeft | Qt::AlignVCenter, title);
+        painter->restore();
+    } else {
+        QString elided_title = painter->fontMetrics().elidedText(title, Qt::ElideRight, available_w);
+        painter->drawText(QRect(tx, ty, available_w, 20), Qt::AlignLeft | Qt::AlignVCenter, elided_title);
+    }
+
+    QColor muted_color = is_selected ? opt.palette.highlightedText().color() : QColor("#8c8c8c");
     painter->setPen(muted_color);
     QFont af = opt.font;
     af.setPointSize(8);
