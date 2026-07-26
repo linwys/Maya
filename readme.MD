@@ -20,3 +20,4 @@ this is very fast, minimalist audio player made on cxx23 standarts and qt6. uses
 * Discord RPC might not connect if Discord is closed when you start player (just restart)
 * Theme switcher is temporary disabled in UI (not fine)
 * If some YouTube link is blocked in your country, download will blocked. press "Try again" or "Skip"
+ 
