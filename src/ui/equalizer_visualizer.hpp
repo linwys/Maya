@@ -2,6 +2,7 @@
 #include <QWidget>
 #include <QTimer>
 #include <vector>
+#include <utility>
 
 namespace ui {
 
@@ -22,6 +23,7 @@ private:
     QTimer m_timer;
     std::vector<float> m_bars;
     std::vector<float> m_peaks;
+    std::vector<std::pair<size_t, size_t>> m_bands;
 };
 
 }
