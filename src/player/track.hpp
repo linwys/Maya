@@ -148,6 +148,9 @@ struct Track {
 
         QString native_path = QDir::toNativeSeparators(file_path);
 #if defined(Q_OS_WIN)
+        if (!native_path.startsWith("\\\\?\\") && QDir::isAbsolutePath(native_path)) {
+            native_path = "\\\\?\\" + native_path;
+        }
         const void* file_ptr = native_path.utf16();
 #else
         QByteArray path_utf8 = native_path.toUtf8();
