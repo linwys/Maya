@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QMouseEvent>
 #include <QStyleOptionSlider>
+#include <QApplication>
 #include "icons.hpp"
 
 namespace ui {
@@ -36,16 +37,18 @@ PlayerControls::PlayerControls(QWidget* parent) : QWidget(parent) {
     m_cover_label->setFixedSize(64, 64);
     m_cover_label->setStyleSheet("background-color: #1a1a1a; border-radius: 6px;");
     m_cover_label->setScaledContents(true);
+    m_cover_label->installEventFilter(this);
+    m_cover_label->setCursor(Qt::PointingHandCursor);
     track_layout->addWidget(m_cover_label);
     track_layout->setAlignment(m_cover_label, Qt::AlignVCenter | Qt::AlignLeft);
 
     auto* text_layout = new QVBoxLayout();
     text_layout->setSpacing(2);
-    m_title_label = new QLabel("No Track Playing", this);
+    m_title_label = new MarqueeLabel("No Track Playing", this);
     m_title_label->setStyleSheet("font-size: 14px; font-weight: bold;");
     m_title_label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
-    m_artist_label = new QLabel("", this);
+    m_artist_label = new MarqueeLabel("", this);
     m_artist_label->setStyleSheet("font-size: 12px;");
     m_artist_label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
@@ -89,10 +92,10 @@ PlayerControls::PlayerControls(QWidget* parent) : QWidget(parent) {
     m_play_btn->setIcon(icons::from_svg(icons::play, QColor("#000000")));
     m_play_btn->setStyleSheet("background-color: #ffffff; border-radius: 20px; border: none;");
     connect(m_play_btn, &QPushButton::clicked, this, [this]() {
-        if (m_play_btn->toolTip() == "Play") {
-            emit play_clicked();
-        } else {
+        if (m_is_playing) {
             emit pause_clicked();
+        } else {
+            emit play_clicked();
         }
     });
     buttons_layout->addWidget(m_play_btn);
@@ -193,11 +196,10 @@ void PlayerControls::update_position(int seconds, int total_seconds) {
 }
 
 void PlayerControls::set_playing_state(bool playing) {
+    m_is_playing = playing;
     if (playing) {
-        m_play_btn->setToolTip("Pause");
         m_play_btn->setIcon(icons::from_svg(icons::pause, QColor("#000000")));
     } else {
-        m_play_btn->setToolTip("Play");
         m_play_btn->setIcon(icons::from_svg(icons::play, QColor("#000000")));
     }
 }
@@ -212,6 +214,14 @@ void PlayerControls::set_visualizer_stream(unsigned long bass_stream) {
 
 void PlayerControls::set_volume_value(int val) {
     m_volume_slider->setValue(val);
+}
+
+bool PlayerControls::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == m_cover_label && event->type() == QEvent::MouseButtonPress) {
+        emit cover_clicked();
+        return true;
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 }
