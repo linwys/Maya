@@ -71,10 +71,10 @@ public:
     void set_gapless_playback(bool enabled) { m_gapless_playback = enabled; queue_save(); } // +
     bool normalize_volume() const { return m_normalize_volume; }    // +
     void set_normalize_volume(bool enabled) { m_normalize_volume = enabled; queue_save(); } // +
-    bool auto_download_favorites() const { return m_auto_download_favorites; }  // +
-    void set_auto_download_favorites(bool enabled) { m_auto_download_favorites = enabled; queue_save(); }   // +
-    bool wifi_only() const { return m_wifi_only; }  // + @note: not may work
-    void set_wifi_only(bool enabled) { m_wifi_only = enabled; queue_save(); }   // + @note: not may work
+    //bool auto_download_favorites() const { return m_auto_download_favorites; } 
+    //void set_auto_download_favorites(bool enabled) { m_auto_download_favorites = enabled; queue_save(); } 
+    //bool wifi_only() const { return m_wifi_only; }
+    //void set_wifi_only(bool enabled) { m_wifi_only = enabled; queue_save(); } 
     void set_save_format(const QString& format) { m_save_format = format; queue_save(); } // + 
     bool equalizer_enabled() const { return m_equalizer_enabled; } // + 
     void set_equalizer_enabled(bool enabled) { m_equalizer_enabled = enabled; queue_save(); } // + 
@@ -101,8 +101,8 @@ private:
     bool m_crossfade{true};
     bool m_gapless_playback{true};
     bool m_normalize_volume{false};
-    bool m_auto_download_favorites{true};
-    bool m_wifi_only{false};
+    //bool m_auto_download_favorites{true};
+    //bool m_wifi_only{false};
     bool m_equalizer_enabled{true};
     bool m_discord_rpc_enabled{false};
     float m_volume{0.8f};
